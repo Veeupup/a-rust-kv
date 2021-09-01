@@ -24,16 +24,23 @@ fn main() {
         .arg(Arg::new("version").short('V'))
         .get_matches();
 
+    // let mut store = KvStore::open(current_dir().unwrap()).unwrap();
+    // store.set("key1".to_owned(), "val1".to_owned());
+    // store.set("key2".to_owned(), "val2".to_owned());
+    // store.set("key3".to_owned(), "val3".to_owned());
+    // store.get("key1".to_owned());
+
     match matches.subcommand() {
         Some(("get", sub_m)) => {
             let key = String::from(sub_m.value_of("KEY").unwrap());
 
             let mut kvs = KvStore::open(current_dir().unwrap()).unwrap();
-            let result = kvs.get(key).unwrap_or_else(|err| {
-                println!("{}", err);
+            
+            if let Some(result) = kvs.get(key).unwrap() {
+                println!("{}", result);
                 exit(0);
-            });
-            println!("{}", result.unwrap());
+            }
+            println!("Key not found");
             exit(0);
         } // get was used
         Some(("set", sub_m)) => {
