@@ -1,7 +1,13 @@
 extern crate clap;
+use std::env::current_dir;
+use std::thread::current;
 use std::{env, process::exit};
+#[macro_use]
+extern crate failure_derive;
 
 use clap::{App, Arg};
+use kvs::KvStore;
+use kvs::KvsError;
 
 fn main() {
     let matches = App::new(env!("CARGO_PKG_NAME"))
@@ -12,24 +18,43 @@ fn main() {
         .subcommand(
             App::new("set")
                 .arg(Arg::new("KEY").required(true))
-                .arg(Arg::new("VAL").required(true)),
+                .arg(Arg::new("VALUE").required(true)),
         )
         .subcommand(App::new("rm").arg(Arg::new("KEY").required(true)))
         .arg(Arg::new("version").short('V'))
         .get_matches();
 
     match matches.subcommand() {
-        Some(("get", _sub_m)) => {
-            eprintln!("unimplemented");
-            exit(1);
+        Some(("get", sub_m)) => {
+            let key = String::from(sub_m.value_of("KEY").unwrap());
+
+            let mut kvs = KvStore::open(current_dir().unwrap()).unwrap();
+            let result = kvs.get(key).unwrap_or_else(|err| {
+                println!("{}", err);
+                exit(0);
+            });
+            println!("{}", result.unwrap());
+            exit(0);
         } // get was used
-        Some(("set", _sub_m)) => {
-            eprintln!("unimplemented");
-            exit(1);
+        Some(("set", sub_m)) => {
+            let key = String::from(sub_m.value_of("KEY").unwrap());
+            let value = String::from(sub_m.value_of("VALUE").unwrap());
+
+            let mut kvs = KvStore::open(current_dir().unwrap()).unwrap();
+            kvs.set(key, value);
+
+            exit(0);
         } // set was used
-        Some(("rm", _sub_m)) => {
-            eprintln!("unimplemented");
-            exit(1);
+        Some(("rm", sub_m)) => {
+            let key = String::from(sub_m.value_of("KEY").unwrap());
+
+            let mut kvs = KvStore::open(current_dir().unwrap()).unwrap();
+            let result = kvs.remove(key).unwrap_or_else(|err| {
+                println!("{}", err);
+                exit(1);
+            });
+
+            exit(0);
         } // rm was used
         _ => {
             panic!("unknown err");
