@@ -1,5 +1,5 @@
 use crate::error::{KvsError, Result};
-use crate::io::{read_n, write_kv};
+use crate::io::{get_sst_from_dir, read_n, write_kv};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
@@ -26,9 +26,16 @@ use std::{
 /// assert_eq!(val, None);
 /// ```
 pub struct KvStore {
-    index: HashMap<String, u64>,
+    index_new: HashMap<String, FileOffset>,
     write_handler: File,
-    read_handler: File,
+    current_dir: PathBuf,
+    current_write_file: String,
+    sst_files: Vec<String>,
+}
+
+struct FileOffset {
+    file: String,
+    offset: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -59,25 +66,47 @@ impl KvStore {
     pub fn set(&mut self, key: String, val: String) -> Result<()> {
         let kv = KV::new(key.clone(), val, 1);
         let len = self.write_handler.metadata().unwrap().len();
-        self.index.insert(key, len);
+        // self.index.insert(key, len);
+        self.index_new.insert(
+            key,
+            FileOffset {
+                file: self.current_write_file.clone(),
+                offset: len,
+            },
+        );
         write_kv(&mut self.write_handler, kv);
         Ok(())
     }
 
     /// Set the value of a string key to a string. Return an error if the value is not written successfully.
     pub fn get(&mut self, key: String) -> Result<Option<String>> {
-        if let Some(index) = self.index.get(&key).cloned() {
-            return self.get_value_by_index(index);
+        if let Some(fo) = self.index_new.get(&key) {
+            return KvStore::get_value_by_file_index(
+                self.current_dir.clone(),
+                fo.file.clone(),
+                fo.offset,
+            );
         }
         return Ok(None);
     }
 
-    fn get_value_by_index(&mut self, index: u64) -> Result<Option<String>> {
-        self.read_handler.seek(SeekFrom::Start(index)).unwrap();
+    fn get_value_by_file_index(
+        current_dir: PathBuf,
+        filename: String,
+        offset: u64,
+    ) -> Result<Option<String>> {
+        let filename = current_dir.clone().join(filename);
+        let mut reader = fs::OpenOptions::new()
+            .read(true)
+            .open(filename)
+            .unwrap_or_else(|err| {
+                panic!("can not open the path : {}", err);
+            });
+        reader.seek(SeekFrom::Start(offset)).unwrap();
         let mut meta_buffer: [u8; 4] = [0; 4]; // 8 byte
-        self.read_handler.read(&mut meta_buffer).unwrap();
+        reader.read(&mut meta_buffer).unwrap();
         let key_len = u32::from_be_bytes(meta_buffer);
-        let data = read_n(&mut self.read_handler, key_len as u64);
+        let data = read_n(&mut reader, key_len as u64);
         let kv: KV = serde_json::from_slice(&data).unwrap();
         if kv.version == 0 {
             return Ok(None);
@@ -96,7 +125,14 @@ impl KvStore {
             }
         }
         let len = self.write_handler.metadata().unwrap().len();
-        self.index.insert(key.clone(), len);
+        // self.index.insert(key.clone(), len);
+        self.index_new.insert(
+            key.clone(),
+            FileOffset {
+                file: self.current_write_file.clone(),
+                offset: len,
+            },
+        );
         let kv = KV::new(key, "".to_owned(), 0);
         write_kv(&mut self.write_handler, kv);
         Ok(())
@@ -104,27 +140,32 @@ impl KvStore {
 
     /// Open the KvStore at a given path. Return the KvStore.
     pub fn open(path: impl Into<PathBuf>) -> Result<KvStore> {
-        let mut path: PathBuf = path.into();
-        path.push("store.txt");
+        // 应该根据传入的 目录，保存这个路径, 并且在之后进行读取每个文件
+        let path: PathBuf = path.into();
+
+        let mut sst_files = get_sst_from_dir(path.clone());
+        if sst_files.is_empty() {
+            sst_files.push("sst_1".to_owned());
+        }
+
+        let write_file = sst_files.last().cloned().unwrap();
+        let write_file_path = path.join(write_file.clone());
+
         let write_handler = fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .append(true)
-            .open(path.clone())
-            .unwrap_or_else(|err| {
-                panic!("can not open the path : {}", err);
-            });
-        let read_handler = fs::OpenOptions::new()
-            .read(true)
-            .open(path)
+            .open(write_file_path)
             .unwrap_or_else(|err| {
                 panic!("can not open the path : {}", err);
             });
         let mut store = KvStore {
-            index: HashMap::new(),
+            index_new: HashMap::new(),
             write_handler: write_handler,
-            read_handler: read_handler,
+            current_write_file: write_file,
+            current_dir: path,
+            sst_files: sst_files,
         };
         store.init();
         Ok(store)
@@ -136,33 +177,32 @@ impl KvStore {
     }
 
     fn read_all_index(&mut self) {
-        self.read_handler.seek(SeekFrom::Start(0)).unwrap();
-        let mut offset = 0;
-        loop {
-            let mut meta_buffer: [u8; 4] = [0; 4]; // 8 byte
-            self.read_handler.read(&mut meta_buffer).unwrap();
-            let key_len = u32::from_be_bytes(meta_buffer);
-            if key_len == 0 {
-                break;
+        for file in &self.sst_files {
+            let file = file.clone();
+            let current_dir = self.current_dir.clone();
+            let path = current_dir.join(file.clone());
+
+            let mut read_handler = fs::OpenOptions::new().read(true).open(path).unwrap();
+
+            let mut offset = 0;
+            loop {
+                let mut meta_buffer: [u8; 4] = [0; 4];
+                read_handler.read(&mut meta_buffer).unwrap();
+                let key_len = u32::from_be_bytes(meta_buffer);
+                if key_len == 0 {
+                    break;
+                }
+                let data = read_n(&mut read_handler, key_len as u64);
+                let kv: KV = serde_json::from_slice(&data).unwrap();
+                self.index_new.insert(
+                    kv.key,
+                    FileOffset {
+                        file: file.clone(),
+                        offset: offset,
+                    },
+                );
+                offset += 4 + key_len as u64;
             }
-            let data = read_n(&mut self.read_handler, key_len as u64);
-            let kv: KV = serde_json::from_slice(&data).unwrap();
-            self.index.insert(kv.key, offset);
-            offset += 4 + key_len as u64;
         }
-    }
-}
-
-impl Default for KvStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
     }
 }
