@@ -29,11 +29,11 @@ pub struct KvStore {
     index: HashMap<String, FileOffset>,
     write_handler: File,
     current_dir: PathBuf,
-    current_write_file: String,
+    current_write_file: u64,
 }
 
 struct FileOffset {
-    file: String,
+    file: u64,
     offset: u64,
 }
 
@@ -96,7 +96,7 @@ impl KvStore {
                 index_new.insert(
                     key.clone(),
                     FileOffset {
-                        file: format!("sst_{}", file_idx),
+                        file: file_idx,
                         offset: len,
                     },
                 );
@@ -140,7 +140,7 @@ impl KvStore {
             .append(true)
             .open(write_file_path)
             .unwrap();
-        self.current_write_file = write_file;
+        self.current_write_file = files.len() as u64;
     }
 
     /// Set the value of a string key to a string. Return an error if the value is not written successfully.
@@ -157,9 +157,10 @@ impl KvStore {
 
     fn get_value_by_file_index(
         current_dir: PathBuf,
-        filename: String,
+        file_idx: u64,
         offset: u64,
     ) -> Result<Option<String>> {
+        let filename = format!("sst_{}", file_idx);
         let filename = current_dir.clone().join(filename);
         let mut reader = fs::OpenOptions::new()
             .read(true)
@@ -216,6 +217,9 @@ impl KvStore {
         let write_file = sst_files.last().cloned().unwrap();
         let write_file_path = path.join(write_file.clone());
 
+        let pos = write_file.find("_").unwrap();
+        let file_idx = write_file[(pos+1)..].parse::<u64>().unwrap();
+
         let write_handler = fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -228,7 +232,7 @@ impl KvStore {
         let mut store = KvStore {
             index: HashMap::new(),
             write_handler: write_handler,
-            current_write_file: write_file,
+            current_write_file: file_idx,
             current_dir: path,
         };
         store.init();
@@ -244,6 +248,9 @@ impl KvStore {
         let mut index: HashMap<String, FileOffset> = HashMap::new();
         let sst_files = get_sst_from_dir_with_prefix(self.current_dir.clone(), "sst".to_owned());
         for file in sst_files {
+            let pos = file.find("_").unwrap();
+            let file_idx = file[(pos+1)..].parse::<u64>().unwrap();
+
             let file = file.clone();
             let current_dir = self.current_dir.clone();
             let path = current_dir.join(file.clone());
@@ -263,7 +270,7 @@ impl KvStore {
                 index.insert(
                     kv.key,
                     FileOffset {
-                        file: file.clone(),
+                        file: file_idx,
                         offset: offset,
                     },
                 );
