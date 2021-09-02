@@ -21,13 +21,22 @@ pub fn write_kv(file: &mut File, kv: KV) {
     file.write(serialized.as_bytes()).unwrap();
 }
 
-pub fn get_sst_from_dir(dir: impl Into<PathBuf>) -> Vec<String> {
+pub fn get_sst_from_dir_with_prefix(dir: impl Into<PathBuf>, prefix: String) -> Vec<String> {
     let paths = read_dir(dir.into()).unwrap();
     let mut files: Vec<String> = paths
         .map(|path| path.unwrap().file_name().into_string().unwrap())
-        .filter(|path| path.starts_with("sst"))
+        .filter(|path| path.starts_with(&prefix))
         .collect();
-    files.sort();
+    let get_version = |filename: &String| -> u32 {
+        let pos1 = filename.find("_").unwrap();
+        let v1 = filename[(pos1+1)..].parse::<u32>().unwrap();
+        v1
+    };
+    files.sort_by(|a, b| {
+        let v1 = get_version(a);
+        let v2 = get_version(b);
+        v1.cmp(&v2)
+    });
     files
 }
 

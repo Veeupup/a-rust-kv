@@ -31,7 +31,7 @@ fn main() {
         Some(("get", sub_m)) => {
             let key = String::from(sub_m.value_of("KEY").unwrap());
 
-            let mut kvs = KvStore::open(current_dir().unwrap()).unwrap();
+            let kvs = KvStore::open(current_dir().unwrap()).unwrap();
 
             if let Some(result) = kvs.get(key).unwrap() {
                 println!("{}", result);
