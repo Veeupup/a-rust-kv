@@ -1,13 +1,10 @@
 extern crate clap;
 use std::env::current_dir;
-use std::thread::current;
 use std::{env, process::exit};
-#[macro_use]
 extern crate failure_derive;
 
 use clap::{App, Arg};
 use kvs::KvStore;
-use kvs::KvsError;
 
 fn main() {
     let matches = App::new(env!("CARGO_PKG_NAME"))
@@ -35,7 +32,7 @@ fn main() {
             let key = String::from(sub_m.value_of("KEY").unwrap());
 
             let mut kvs = KvStore::open(current_dir().unwrap()).unwrap();
-            
+
             if let Some(result) = kvs.get(key).unwrap() {
                 println!("{}", result);
                 exit(0);
@@ -48,7 +45,7 @@ fn main() {
             let value = String::from(sub_m.value_of("VALUE").unwrap());
 
             let mut kvs = KvStore::open(current_dir().unwrap()).unwrap();
-            kvs.set(key, value);
+            kvs.set(key, value).unwrap();
 
             exit(0);
         } // set was used
@@ -56,7 +53,7 @@ fn main() {
             let key = String::from(sub_m.value_of("KEY").unwrap());
 
             let mut kvs = KvStore::open(current_dir().unwrap()).unwrap();
-            let result = kvs.remove(key).unwrap_or_else(|err| {
+            let _ = kvs.remove(key).unwrap_or_else(|err| {
                 println!("{}", err);
                 exit(1);
             });

@@ -66,23 +66,14 @@ impl KvStore {
 
     /// Set the value of a string key to a string. Return an error if the value is not written successfully.
     pub fn get(&mut self, key: String) -> Result<Option<String>> {
-        // 如果内存中有索引信息，那么直接读出来就行了
         if let Some(index) = self.index.get(&key).cloned() {
-            return self.get_value_by_index(index);
-        }
-        // 如果内存中没有索引信息，那么需要去文件中遍历下找一下
-        // 如果没有找到，那么可以直接返回 NotFound，
-        // 如果找到了，那么就返回找到的 value 即可
-        // 同时，如果反复访问一个不存在的 key，那么将会产生大量的读操作，所以 bf
-        // TODO(tw) 实现一个 bf 来优化查找不存在的 key
-        if let Some(index) = self.find_key_index(key) {
             return self.get_value_by_index(index);
         }
         return Ok(None);
     }
 
     fn get_value_by_index(&mut self, index: u64) -> Result<Option<String>> {
-        self.read_handler.seek(SeekFrom::Start(index));
+        self.read_handler.seek(SeekFrom::Start(index)).unwrap();
         let mut meta_buffer: [u8; 4] = [0; 4]; // 8 byte
         self.read_handler.read(&mut meta_buffer).unwrap();
         let key_len = u32::from_be_bytes(meta_buffer);
@@ -99,12 +90,10 @@ impl KvStore {
     pub fn remove(&mut self, key: String) -> Result<()> {
         let result = self.get(key.clone()).unwrap();
         match result {
-            Some(val) => {
-                // println!("find key value: {}", val);
-            },
+            Some(_) => {}
             None => {
                 return Err(KvsError::KeyNotFound);
-            }   
+            }
         }
         let len = self.write_handler.metadata().unwrap().len();
         self.index.insert(key.clone(), len);
@@ -132,15 +121,22 @@ impl KvStore {
             .unwrap_or_else(|err| {
                 panic!("can not open the path : {}", err);
             });
-        Ok(KvStore {
+        let mut store = KvStore {
             index: HashMap::new(),
             write_handler: write_handler,
             read_handler: read_handler,
-        })
+        };
+        store.init();
+        Ok(store)
     }
 
-    fn find_key_index(&mut self, key: String) -> Option<u64> {
-        self.read_handler.seek(SeekFrom::Start(0));
+    /// init kvstore, read all index into memory
+    pub fn init(&mut self) {
+        self.read_all_index();
+    }
+
+    fn read_all_index(&mut self) {
+        self.read_handler.seek(SeekFrom::Start(0)).unwrap();
         let mut offset = 0;
         loop {
             let mut meta_buffer: [u8; 4] = [0; 4]; // 8 byte
@@ -151,12 +147,9 @@ impl KvStore {
             }
             let data = read_n(&mut self.read_handler, key_len as u64);
             let kv: KV = serde_json::from_slice(&data).unwrap();
-            if kv.key == key {
-                self.index.insert(key.clone(), offset);
-            }
+            self.index.insert(kv.key, offset);
             offset += 4 + key_len as u64;
         }
-        self.index.get(&key).cloned()
     }
 }
 
