@@ -1,15 +1,20 @@
 extern crate failure;
 use failure::Fail;
+use serde::{Deserialize, Serialize};
 
 /// Error in Kvs Store
-#[derive(Debug, Fail)]
+#[derive(Serialize, Deserialize, Debug)]
+#[derive(Fail)]
 pub enum KvsError {
     /// a
     #[fail(display = "File not found")]
-    StoreFileNotFound,
+    ErrStoreFileNotFound,
     ///
     #[fail(display = "Key not found")]
-    KeyNotFound,
+    ErrKeyNotFound,
+    /// ok
+    #[fail(display = "OK")]
+    ErrOk,
 }
 
 /// The Result for kvs store

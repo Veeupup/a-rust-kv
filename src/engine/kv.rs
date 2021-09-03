@@ -37,6 +37,7 @@ struct FileOffset {
     offset: u64,
 }
 
+/// KV for kvstore
 #[derive(Serialize, Deserialize, Debug)]
 pub struct KV {
     version: u32,
@@ -187,7 +188,7 @@ impl KvStore {
         match result {
             Some(_) => {}
             None => {
-                return Err(KvsError::KeyNotFound);
+                return Err(KvsError::ErrKeyNotFound);
             }
         }
         let len = self.write_handler.metadata().unwrap().len();
