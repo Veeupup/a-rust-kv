@@ -1,7 +1,7 @@
 #![deny(missing_docs)]
 //! A simple kv store
 
-pub use engine::{KvStore, KvsEngine, KV};
+pub use engine::{KvStore, KvsEngine, KV, SledStore};
 pub use error::KvsError;
 pub use error::Result;
 pub use proto::{Request, Response, OpType};

@@ -1,5 +1,6 @@
+use crate::engine::KvsEngine;
 use crate::error::{KvsError, Result};
-use crate::io::{get_sst_from_dir_with_prefix, read_n, write_kv};
+use crate::io::{get_sst_from_dir_with_prefix, read_n, write_kv, own_dir_or_not};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
@@ -12,19 +13,6 @@ use std::{
 ///
 /// Key/value pairs are stored in a `HashMap` in memory
 ///
-/// Example:
-///
-/// ```rust
-/// # use kvs::KvStore;
-/// use std::env::current_dir;
-/// let mut store = KvStore::open(current_dir().unwrap()).unwrap();
-/// store.set("key".to_owned(), "value".to_owned());
-/// let val = store.get("key".to_owned()).unwrap();
-/// assert_eq!(val, Some("value".to_owned()));
-/// store.remove("key".to_owned());
-/// let val = store.get("key".to_owned()).unwrap();
-/// assert_eq!(val, None);
-/// ```
 pub struct KvStore {
     index: HashMap<String, FileOffset>,
     write_handler: File,
@@ -57,9 +45,10 @@ impl KV {
 
 const ONE_SST_FILE_MAX_SIZE: u64 = 1024 * 1024;
 
-impl KvStore {
+impl KvsEngine for KvStore {
+    /// set kv pair
     /// Get the string value of a string key. If the key does not exist, return None. Return an error if the value is not read successfully.
-    pub fn set(&mut self, key: String, val: String) -> Result<()> {
+    fn set(&mut self, key: String, val: String) -> Result<()> {
         let kv = KV::new(key.clone(), val, 1);
         let len = self.write_handler.metadata().unwrap().len();
         self.index.insert(
@@ -75,7 +64,44 @@ impl KvStore {
         }
         Ok(())
     }
+    /// get kv pair
+    /// Set the value of a string key to a string. Return an error if the value is not written successfully.
+    fn get(&mut self, key: String) -> Result<Option<String>> {
+        if let Some(fo) = self.index.get(&key) {
+            return KvStore::get_value_by_file_index(
+                self.current_dir.clone(),
+                fo.file.clone(),
+                fo.offset,
+            );
+        }
+        return Ok(None);
+    }
+    /// remove kv pair
+    /// Remove a given key. Return an error if the key does not exist or is not removed successfully.
+    fn remove(&mut self, key: String) -> Result<()> {
+        let result = self.get(key.clone()).unwrap();
+        match result {
+            Some(_) => {}
+            None => {
+                return Err(KvsError::ErrKeyNotFound);
+            }
+        }
+        let len = self.write_handler.metadata().unwrap().len();
+        // self.index.insert(key.clone(), len);
+        self.index.insert(
+            key.clone(),
+            FileOffset {
+                file: self.current_write_file.clone(),
+                offset: len,
+            },
+        );
+        let kv = KV::new(key, "".to_owned(), 0);
+        write_kv(&mut self.write_handler, kv);
+        Ok(())
+    }
+}
 
+impl KvStore {
     fn compaction(&mut self) {
         // 由于已经有了所有的 index 信息在内存中，所以可以直接构造新的 sst files，并且更新新的 sst files
         let mut index_new: HashMap<String, FileOffset> = HashMap::new();
@@ -89,9 +115,20 @@ impl KvStore {
             .open(tmp_file)
             .unwrap();
 
+        let get_fn = |key: String| {
+            if let Some(fo) = self.index.get(&key) {
+                return KvStore::get_value_by_file_index(
+                    self.current_dir.clone(),
+                    fo.file.clone(),
+                    fo.offset,
+                );
+            }
+            return Ok(None);
+        };
+
         for (key, _) in &self.index {
             // 只处理仍然存在的 key，如果 key 不存在或者被删除了，那么就不需要写到新的里面去了
-            if let Some(value) = self.get(key.clone()).unwrap() {
+            if let Some(value) = get_fn(key.clone()).unwrap() {
                 let len = write_handler.metadata().unwrap().len();
                 let kv = KV::new(key.clone(), value, 1);
                 index_new.insert(
@@ -144,18 +181,6 @@ impl KvStore {
         self.current_write_file = files.len() as u64;
     }
 
-    /// Set the value of a string key to a string. Return an error if the value is not written successfully.
-    pub fn get(&self, key: String) -> Result<Option<String>> {
-        if let Some(fo) = self.index.get(&key) {
-            return KvStore::get_value_by_file_index(
-                self.current_dir.clone(),
-                fo.file.clone(),
-                fo.offset,
-            );
-        }
-        return Ok(None);
-    }
-
     fn get_value_by_file_index(
         current_dir: PathBuf,
         file_idx: u64,
@@ -182,33 +207,12 @@ impl KvStore {
         }
     }
 
-    /// Remove a given key. Return an error if the key does not exist or is not removed successfully.
-    pub fn remove(&mut self, key: String) -> Result<()> {
-        let result = self.get(key.clone()).unwrap();
-        match result {
-            Some(_) => {}
-            None => {
-                return Err(KvsError::ErrKeyNotFound);
-            }
-        }
-        let len = self.write_handler.metadata().unwrap().len();
-        // self.index.insert(key.clone(), len);
-        self.index.insert(
-            key.clone(),
-            FileOffset {
-                file: self.current_write_file.clone(),
-                offset: len,
-            },
-        );
-        let kv = KV::new(key, "".to_owned(), 0);
-        write_kv(&mut self.write_handler, kv);
-        Ok(())
-    }
-
     /// Open the KvStore at a given path. Return the KvStore.
     pub fn open(path: impl Into<PathBuf>) -> Result<KvStore> {
         // 应该根据传入的 目录，保存这个路径, 并且在之后进行读取每个文件
         let path: PathBuf = path.into();
+
+        own_dir_or_not(path.clone(), "kvs");
 
         let mut sst_files = get_sst_from_dir_with_prefix(path.clone(), "sst".to_owned());
         if sst_files.is_empty() {
@@ -219,7 +223,7 @@ impl KvStore {
         let write_file_path = path.join(write_file.clone());
 
         let pos = write_file.find("_").unwrap();
-        let file_idx = write_file[(pos+1)..].parse::<u64>().unwrap();
+        let file_idx = write_file[(pos + 1)..].parse::<u64>().unwrap();
 
         let write_handler = fs::OpenOptions::new()
             .read(true)
@@ -250,7 +254,7 @@ impl KvStore {
         let sst_files = get_sst_from_dir_with_prefix(self.current_dir.clone(), "sst".to_owned());
         for file in sst_files {
             let pos = file.find("_").unwrap();
-            let file_idx = file[(pos+1)..].parse::<u64>().unwrap();
+            let file_idx = file[(pos + 1)..].parse::<u64>().unwrap();
 
             let file = file.clone();
             let current_dir = self.current_dir.clone();

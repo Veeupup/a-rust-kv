@@ -2,7 +2,7 @@ extern crate clap;
 extern crate failure_derive;
 
 use clap::{App, Arg};
-use kvs::{read_n, KvStore, KvsError, OpType, Request, Response};
+use kvs::{KvStore, KvsEngine, KvsError, OpType, Request, Response, SledStore, read_n};
 #[allow(unused)]
 use log::{debug, error, info, warn, LevelFilter};
 use std::env::current_dir;
@@ -46,15 +46,23 @@ fn main() {
     });
     info!("Now Server is listening on: {}", addr);
 
-    let mut store = KvStore::open(current_dir().unwrap()).unwrap();
-
-    for stream in listener.incoming() {
-        let stream = stream.unwrap();
-        handle_connection(&mut store, stream);
+    if engine == "kvs" {
+        let mut store: Box<dyn KvsEngine> = Box::new(KvStore::open(current_dir().unwrap()).unwrap());
+        start_server(&mut store, listener);
+    }else {
+        let mut store: Box<dyn KvsEngine> = Box::new(SledStore::open(current_dir().unwrap()).unwrap());
+        start_server(&mut store, listener);
     }
 }
 
-fn handle_connection(store: &mut KvStore, mut stream: TcpStream) {
+fn start_server(store: &mut Box<dyn KvsEngine>, listener: TcpListener) {
+    for stream in listener.incoming() {
+        let stream = stream.unwrap();
+        handle_connection(store, stream);
+    }
+}
+
+fn handle_connection(store: &mut Box<dyn KvsEngine>, mut stream: TcpStream) {
     let mut buffer = [0; 4]; // request len
     stream.read(&mut buffer).unwrap();
     let request_len = u32::from_be_bytes(buffer);

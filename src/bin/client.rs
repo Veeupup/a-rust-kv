@@ -4,7 +4,7 @@ use std::{env, process::exit};
 extern crate failure_derive;
 
 use clap::{App, Arg};
-use kvs::{OpType, Request, Response, read_n};
+use kvs::{KvsError, OpType, Request, Response, read_n};
 use log::{error, info};
 use std::io::prelude::*;
 use std::net::TcpStream;
@@ -47,13 +47,11 @@ fn main() {
         .arg(Arg::new("version").short('V'))
         .get_matches();
 
-    // TODO(tw) 可以改成 lambda 的传入函数执行
-
     match matches.subcommand() {
         Some(("get", sub_m)) => {
             let key = String::from(sub_m.value_of("KEY").unwrap());
             let addr = sub_m.value_of("addr").unwrap();
-            println!("get key: {}, addr: {}", key, addr);
+            info!("get key: {}, addr: {}", key, addr);
 
             let mut stream = TcpStream::connect(&addr).unwrap_or_else(|err| {
                 error!("Error happened when connect {}, error: {}", addr, &err);
@@ -67,7 +65,17 @@ fn main() {
             };
 
             let response = hand_rpc(request, &mut stream);
-            println!("{:?}", response);
+            info!("{:?}", response);
+            match response.status {
+                KvsError::ErrKeyNotFound => {
+                    println!("{}", response.status);
+                },
+                KvsError::ErrOk => {
+                    println!("{}", response.value);
+                },
+                _ => {}
+            }
+            
 
         } // get was used
         Some(("set", sub_m)) => {
@@ -75,7 +83,7 @@ fn main() {
             let value = String::from(sub_m.value_of("VALUE").unwrap());
             let addr = String::from(sub_m.value_of("addr").unwrap());
 
-            println!("set key: {}, value: {}, addr: {}", key, value, addr);
+            info!("set key: {}, value: {}, addr: {}", key, value, addr);
 
             let mut stream = TcpStream::connect(&addr).unwrap_or_else(|err| {
                 error!("Error happened when connect {}, error: {}", addr, &err);
@@ -89,14 +97,14 @@ fn main() {
             };
 
             let response = hand_rpc(request, &mut stream);
-            println!("{:?}", response);
+            info!("{:?}", response);
 
         } // set was used
         Some(("rm", sub_m)) => {
             let key = String::from(sub_m.value_of("KEY").unwrap());
             let addr = String::from(sub_m.value_of("addr").unwrap());
 
-            println!("rm key: {}, addr: {}", key, addr);
+            info!("rm key: {}, addr: {}", key, addr);
 
             let mut stream = TcpStream::connect(&addr).unwrap_or_else(|err| {
                 error!("Error happened when connect {}, error: {}", addr, &err);
@@ -110,7 +118,18 @@ fn main() {
             };
 
             let response = hand_rpc(request, &mut stream);
-            println!("{:?}", response);
+            info!("{:?}", response);
+
+            match response.status {
+                KvsError::ErrKeyNotFound => {
+                    eprintln!("Key not found");
+                    exit(1);
+                },
+                KvsError::ErrOk => {
+                    
+                },
+                _ => {}
+            }
 
         } // rm was used
         _ => {

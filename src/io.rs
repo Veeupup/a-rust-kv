@@ -1,7 +1,8 @@
 use engine::KV;
-use std::fs::{read_dir, File};
+use std::fs::{self, read_dir, File};
 use std::io::{Read, Write};
 use std::path::{PathBuf};
+use std::process::exit;
 
 use crate::engine;
 
@@ -32,7 +33,7 @@ pub fn get_sst_from_dir_with_prefix(dir: impl Into<PathBuf>, prefix: String) -> 
         .collect();
     let get_version = |filename: &String| -> u32 {
         let pos1 = filename.find("_").unwrap();
-        let v1 = filename[(pos1+1)..].parse::<u32>().unwrap();
+        let v1 = filename[(pos1 + 1)..].parse::<u32>().unwrap();
         v1
     };
     files.sort_by(|a, b| {
@@ -41,4 +42,30 @@ pub fn get_sst_from_dir_with_prefix(dir: impl Into<PathBuf>, prefix: String) -> 
         v1.cmp(&v2)
     });
     files
+}
+
+pub fn own_dir_or_not(dir: PathBuf, db_type: &str) {
+    let paths = read_dir(dir.clone()).unwrap();
+
+    // 如果没有任何前缀文件，那么认为都没创建过，可以继续做
+    for file in paths {
+        let filename = file.unwrap().file_name().into_string().unwrap();
+        if db_type == "kvs" && filename.starts_with("sled") {
+            exit(1);
+        }
+        if db_type == "sled" && filename.starts_with("kvs") {
+            exit(1);
+        }
+    }
+
+    let filepath = dir.join(db_type);
+
+    fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(filepath)
+        .unwrap_or_else(|err| {
+            panic!("can not open the path : {}", err);
+        });
 }
