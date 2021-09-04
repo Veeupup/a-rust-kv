@@ -1,3 +1,5 @@
+use std::usize;
+
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
 use kvs::KvStore;
@@ -92,7 +94,12 @@ fn store_read(r: &mut StdRng, store: &mut Box<dyn KvsEngine>) {
         let key_content = std::iter::repeat('a').take(key_len).collect::<String>();
         let key = format!("key{}{}", i, key_content);
 
-        store.get(key).unwrap();
+        let val_len = r.gen_range(1..=100000);
+        let expected_val = std::iter::repeat('a').take(val_len).collect::<String>();
+
+        let get_val = store.get(key).unwrap().unwrap();
+
+        assert_eq!(expected_val, get_val);
     }
 }
 
