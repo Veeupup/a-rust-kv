@@ -22,7 +22,6 @@ path = "src/bin/client.rs"
 assert_cmd = "0.11.0"
 criterion = "0.3"
 predicates = "1.0.0"
-rand = "0.6.5"
 tempfile = "3.0.7"
 walkdir = "2.2.7"
 
@@ -38,3 +37,7 @@ rand = "0.8.4"
 env_logger = "0.9.0"
 log4rs = "1.0.0"
 sled = "0.34.6"
+
+[[bench]]
+name = "benches"
+harness = false

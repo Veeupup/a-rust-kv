@@ -43,7 +43,7 @@ impl KV {
     }
 }
 
-const ONE_SST_FILE_MAX_SIZE: u64 = 1024 * 1024;
+const ONE_SST_FILE_MAX_SIZE: u64 = 1024 * 1024 * 10;
 
 impl KvsEngine for KvStore {
     /// set kv pair
