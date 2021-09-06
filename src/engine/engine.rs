@@ -1,11 +1,11 @@
 use crate::error::Result;
 
 /// KvsEngine
-pub trait KvsEngine {
+pub trait KvsEngine: Clone + Send + 'static {
     /// set kv pair
-    fn set(&mut self, key: String, value: String) -> Result<()>;
+    fn set(&self, key: String, value: String) -> Result<()>;
     /// get kv pair
-    fn get(&mut self, key: String) -> Result<Option<String>>;
+    fn get(&self, key: String) -> Result<Option<String>>;
     /// remove kv pair
-    fn remove(&mut self, key: String) -> Result<()>; 
+    fn remove(&self, key: String) -> Result<()>; 
 }

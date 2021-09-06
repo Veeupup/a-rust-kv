@@ -2,7 +2,7 @@ extern crate clap;
 extern crate failure_derive;
 
 use clap::{App, Arg};
-use kvs::{KvStore, KvsEngine, KvsError, OpType, Request, Response, SledStore, read_n};
+use kvs::{read_n, KvStore, KvsEngine, KvsError, OpType, Request, SledStore, Response, thread_pool::*};
 #[allow(unused)]
 use log::{debug, error, info, warn, LevelFilter};
 use std::env::current_dir;
@@ -47,22 +47,27 @@ fn main() {
     info!("Now Server is listening on: {}", addr);
 
     if engine == "kvs" {
-        let mut store: Box<dyn KvsEngine> = Box::new(KvStore::open(current_dir().unwrap()).unwrap());
-        start_server(&mut store, listener);
+        let store = KvStore::open(current_dir().unwrap()).unwrap();
+        start_server(store, listener);
     }else {
-        let mut store: Box<dyn KvsEngine> = Box::new(SledStore::open(current_dir().unwrap()).unwrap());
-        start_server(&mut store, listener);
+        let store = SledStore::open(current_dir().unwrap()).unwrap();
+        start_server(store, listener);
     }
 }
 
-fn start_server(store: &mut Box<dyn KvsEngine>, listener: TcpListener) {
+fn start_server<E: KvsEngine>(store: E, listener: TcpListener) {
+    let pool = NaiveThreadPool::new(4).unwrap();
+
     for stream in listener.incoming() {
         let stream = stream.unwrap();
-        handle_connection(store, stream);
+        let storex = store.clone();
+        pool.spawn(|| {
+            handle_connection(storex, stream);
+        });
     }
 }
 
-fn handle_connection(store: &mut Box<dyn KvsEngine>, mut stream: TcpStream) {
+fn handle_connection<E: KvsEngine>(store: E, mut stream: TcpStream) {
     let mut buffer = [0; 4]; // request len
     stream.read(&mut buffer).unwrap();
     let request_len = u32::from_be_bytes(buffer);

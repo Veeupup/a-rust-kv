@@ -12,18 +12,21 @@ test = false
 
 [[bin]]
 name = "kvs-server"
-path = "src/bin/server.rs"
+path = "src/bin/kv-server.rs"
 
 [[bin]]
 name = "kvs-client"
-path = "src/bin/client.rs"
+path = "src/bin/kv-client.rs"
 
 [dev-dependencies]
-assert_cmd = "0.11.0"
-criterion = "0.3"
+assert_cmd = "0.11"
+criterion = "0.2.11"
+crossbeam-utils = "0.6.5"
 predicates = "1.0.0"
+rand = "0.6.5"
 tempfile = "3.0.7"
 walkdir = "2.2.7"
+panic-control = "0.1.4"
 
 [dependencies]
 clap = "3.0.0-beta.4"

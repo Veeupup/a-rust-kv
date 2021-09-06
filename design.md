@@ -93,4 +93,11 @@ compaction 的过程描述：
 ## 朴素思路1的改进
 
 
+# 并发
+
+##  Creating a shared KvsEngine
+
+感觉 Rust 的安全就在于此，如果实现了 Clone 之后，拿到 immutatable 的对象，就不用担心多线程的的非同步读写操作了，然后使用 `Arc<Mutex<T>>` 来保存需要修改的接口，每次在使用之前一定要先拿到锁才行，其实可以用读写锁更好
+
+
 

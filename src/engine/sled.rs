@@ -1,5 +1,7 @@
 use std::ops::Deref;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use crate::KvsEngine;
 use crate::KvsError;
@@ -8,19 +10,31 @@ use crate::io::own_dir_or_not;
 
 /// Seld store
 pub struct SledStore {
-    db: sled::Db,
+    db: Arc<Mutex<sled::Db>>,
+}
+
+impl Clone for SledStore {
+    fn clone(&self) -> Self {
+        SledStore {
+            db: self.db.clone()
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.db = source.db.clone();
+    }
 }
 
 impl KvsEngine for SledStore {
     /// set kv pair
-    fn set(&mut self, key: String, value: String) -> Result<()> {
-        let _ = self.db.insert(key.as_bytes(), value.as_bytes());
-        self.db.flush().unwrap();
+    fn set(&self, key: String, value: String) -> Result<()> {
+        let _ = self.db.lock().unwrap().insert(key.as_bytes(), value.as_bytes());
+        self.db.lock().unwrap().flush().unwrap();
         Ok(())
     }
     /// get kv pair
-    fn get(&mut self, key: String) -> Result<Option<String>> {
-        let result = self.db.get(key);
+    fn get(&self, key: String) -> Result<Option<String>> {
+        let result = self.db.lock().unwrap().get(key);
         match result {
             Ok(result) => {
                 if let Some(value) = result {
@@ -36,15 +50,15 @@ impl KvsEngine for SledStore {
         }
     }
     /// remove kv pair
-    fn remove(&mut self, key: String) -> Result<()> {
-        match self.db.get(key.clone()).unwrap() {
+    fn remove(&self, key: String) -> Result<()> {
+        match self.db.lock().unwrap().get(key.clone()).unwrap() {
             Some(_) => {},
             None => {
                 return Err(KvsError::ErrKeyNotFound);
             }
         }
-        self.db.remove(key).unwrap();
-        self.db.flush().unwrap();
+        self.db.lock().unwrap().remove(key).unwrap();
+        self.db.lock().unwrap().flush().unwrap();
         Ok(())
     }
 }
@@ -55,6 +69,6 @@ impl SledStore {
         let path = path.into();
         own_dir_or_not(path.clone(), "sled");
         let tree = sled::open(path).unwrap();
-        Ok(SledStore { db: tree })
+        Ok(SledStore { db: Arc::new(Mutex::new(tree)) })
     }
 }
