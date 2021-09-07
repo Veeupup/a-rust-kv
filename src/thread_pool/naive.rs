@@ -7,7 +7,7 @@ pub struct NaiveThreadPool {}
 
 impl ThreadPool for NaiveThreadPool {
     /// new
-    fn new(_threads: u32) -> Result<Self>
+    fn new(_: u32) -> Result<Self>
     where
         Self: Sized,
     {

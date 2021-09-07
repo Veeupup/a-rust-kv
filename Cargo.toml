@@ -20,7 +20,7 @@ path = "src/bin/kv-client.rs"
 
 [dev-dependencies]
 assert_cmd = "0.11"
-criterion = "0.2.11"
+criterion = "0.3"
 crossbeam-utils = "0.6.5"
 predicates = "1.0.0"
 rand = "0.6.5"
@@ -40,6 +40,8 @@ rand = "0.8.4"
 env_logger = "0.9.0"
 log4rs = "1.0.0"
 sled = "0.34.6"
+num_cpus = "1.13.0"
+rayon = "1.5.1"
 
 [[bench]]
 name = "benches"

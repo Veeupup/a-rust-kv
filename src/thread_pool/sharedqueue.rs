@@ -13,6 +13,7 @@ pub struct SharedQueueThreadPool {
 
 impl ThreadPool for SharedQueueThreadPool {
     fn new(threads: u32) -> Result<SharedQueueThreadPool> {
+        info!("Init SharedQueueThreadPool with {} threads", threads);
         assert!(threads > 0);
 
         let (sender, receiver) = mpsc::channel();

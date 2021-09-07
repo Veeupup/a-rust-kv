@@ -1,5 +1,3 @@
-use std::usize;
-
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
 use kvs::KvStore;
@@ -18,10 +16,9 @@ fn kvs_write_bench(c: &mut Criterion) {
             c.iter(|| {
                 let temp_dir =
                     TempDir::new().expect("unable to create temporary working directory");
-                let mut store: Box<dyn KvsEngine> =
-                    Box::new(KvStore::open(temp_dir.path()).unwrap());
+                let store = KvStore::open(temp_dir.path()).unwrap();
 
-                store_write(&mut r, &mut store);
+                store_write(&mut r, &store);
             });
         });
 
@@ -30,17 +27,16 @@ fn kvs_write_bench(c: &mut Criterion) {
             c.iter(|| {
                 let temp_dir =
                     TempDir::new().expect("unable to create temporary working directory");
-                let mut store: Box<dyn KvsEngine> =
-                    Box::new(SledStore::open(temp_dir.path()).unwrap());
+                let store = SledStore::open(temp_dir.path()).unwrap();
 
-                store_write(&mut r, &mut store);
+                store_write(&mut r, &store);
             });
         });
     }
     group.finish();
 }
 
-fn store_write(r: &mut StdRng, store: &mut Box<dyn KvsEngine>) {
+fn store_write<E: KvsEngine>(r: &mut StdRng, store: &E) {
     for i in 1..=100 {
         let key_len = r.gen_range(1..=100000);
         let key_content = std::iter::repeat('a').take(key_len).collect::<String>();
@@ -61,13 +57,13 @@ fn kvs_read_bench(c: &mut Criterion) {
             let mut r = StdRng::seed_from_u64(*seed);
             let temp_dir = TempDir::new().expect("unable to create temporary working directory");
             // 这里可以放到外面是因为只需要生成一次数据，后面的都可以只读
-            let mut store: Box<dyn KvsEngine> = Box::new(KvStore::open(temp_dir.path()).unwrap());
-            store_write(&mut r, &mut store);
+            let store = KvStore::open(temp_dir.path()).unwrap();
+            store_write(&mut r, &store);
 
             c.iter(|| {
                 // 注意这里需要重新生成随机数，因为需要生成一样的读取 key
                 let mut r = StdRng::seed_from_u64(*seed);
-                store_read(&mut r, &mut store);
+                store_read(&mut r, &store);
             });
         });
 
@@ -75,20 +71,20 @@ fn kvs_read_bench(c: &mut Criterion) {
             let mut r = StdRng::seed_from_u64(*seed);
             let temp_dir = TempDir::new().expect("unable to create temporary working directory");
             // 这里可以放到外面是因为只需要生成一次数据，后面的都可以只读
-            let mut store: Box<dyn KvsEngine> = Box::new(SledStore::open(temp_dir.path()).unwrap());
-            store_write(&mut r, &mut store);
+            let store = SledStore::open(temp_dir.path()).unwrap();
+            store_write(&mut r, &store);
 
             c.iter(|| {
                 // 注意这里需要重新生成随机数，因为需要生成一样的读取 key
                 let mut r = StdRng::seed_from_u64(*seed);
-                store_read(&mut r, &mut store);
+                store_read(&mut r, &store);
             });
         });
     }
     group.finish();
 }
 
-fn store_read(r: &mut StdRng, store: &mut Box<dyn KvsEngine>) {
+fn store_read<E: KvsEngine>(r: &mut StdRng, store: &E) {
     for i in 1..=100 {
         let key_len = r.gen_range(1..=100000);
         let key_content = std::iter::repeat('a').take(key_len).collect::<String>();

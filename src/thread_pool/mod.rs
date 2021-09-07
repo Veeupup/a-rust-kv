@@ -13,8 +13,10 @@ pub trait ThreadPool {
         F: FnOnce() + Send + 'static;
 }
 
-pub use sharedqueuethreadpool::SharedQueueThreadPool;
+pub use sharedqueue::SharedQueueThreadPool;
 pub use naive::NaiveThreadPool;
+pub use self::rayon::RayonThreadPool;
 
-mod sharedqueuethreadpool;
+mod sharedqueue;
 mod naive;
+mod rayon;

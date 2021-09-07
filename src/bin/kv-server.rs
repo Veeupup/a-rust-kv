@@ -1,5 +1,6 @@
 extern crate clap;
 extern crate failure_derive;
+extern crate num_cpus;
 
 use clap::{App, Arg};
 use kvs::{read_n, KvStore, KvsEngine, KvsError, OpType, Request, SledStore, Response, thread_pool::*};
@@ -9,6 +10,7 @@ use std::env::current_dir;
 use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream};
 use std::{env, process::exit};
+
 
 fn main() {
     env_logger::Builder::new()
@@ -56,7 +58,7 @@ fn main() {
 }
 
 fn start_server<E: KvsEngine>(store: E, listener: TcpListener) {
-    let pool = SharedQueueThreadPool::new(4).unwrap();
+    let pool = SharedQueueThreadPool::new(num_cpus::get() as u32).unwrap();
 
     for stream in listener.incoming() {
         let stream = stream.unwrap();
