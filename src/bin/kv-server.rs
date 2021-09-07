@@ -56,7 +56,7 @@ fn main() {
 }
 
 fn start_server<E: KvsEngine>(store: E, listener: TcpListener) {
-    let pool = NaiveThreadPool::new(4).unwrap();
+    let pool = SharedQueueThreadPool::new(4).unwrap();
 
     for stream in listener.incoming() {
         let stream = stream.unwrap();
