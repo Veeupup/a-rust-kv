@@ -44,7 +44,7 @@ impl KV {
     }
 }
 
-const ONE_SST_FILE_MAX_SIZE: u64 = 1024;
+const ONE_SST_FILE_MAX_SIZE: u64 = 1024 * 1024 * 10;
 
 impl Clone for KvStore {
     fn clone(&self) -> Self {

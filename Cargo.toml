@@ -43,6 +43,10 @@ sled = "0.34.6"
 num_cpus = "1.13.0"
 rayon = "1.5.1"
 
+# [[bench]]
+# name = "read_write_bench"
+# harness = false
+
 [[bench]]
-name = "benches"
+name = "thread_pool_bench"
 harness = false

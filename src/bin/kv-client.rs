@@ -1,13 +1,11 @@
 extern crate clap;
-use std::io::Write;
-use std::{env, process::exit};
+use std::env;
 extern crate failure_derive;
 
 use clap::{App, Arg};
-use kvs::{KvsError, OpType, Request, Response, read_n};
-use log::{error, info};
-use std::io::prelude::*;
-use std::net::TcpStream;
+use kvs::{KvsClient, KvsError};
+use log::info;
+use std::process::exit;
 
 fn main() {
     env_logger::init();
@@ -51,20 +49,8 @@ fn main() {
         Some(("get", sub_m)) => {
             let key = String::from(sub_m.value_of("KEY").unwrap());
             let addr = sub_m.value_of("addr").unwrap();
-            info!("get key: {}, addr: {}", key, addr);
 
-            let mut stream = TcpStream::connect(&addr).unwrap_or_else(|err| {
-                error!("Error happened when connect {}, error: {}", addr, &err);
-                exit(1);
-            });
-
-            let request = Request {
-                op: OpType::GET,
-                key: key,
-                value: "".to_owned(),
-            };
-
-            let response = hand_rpc(request, &mut stream);
+            let response = KvsClient::get(key, addr);
             info!("{:?}", response);
             match response.status {
                 KvsError::ErrKeyNotFound => {
@@ -75,50 +61,19 @@ fn main() {
                 },
                 _ => {}
             }
-            
-
-        } // get was used
+        }
         Some(("set", sub_m)) => {
             let key = String::from(sub_m.value_of("KEY").unwrap());
             let value = String::from(sub_m.value_of("VALUE").unwrap());
-            let addr = String::from(sub_m.value_of("addr").unwrap());
+            let addr = sub_m.value_of("addr").unwrap();
 
-            info!("set key: {}, value: {}, addr: {}", key, value, addr);
-
-            let mut stream = TcpStream::connect(&addr).unwrap_or_else(|err| {
-                error!("Error happened when connect {}, error: {}", addr, &err);
-                exit(1);
-            });
-
-            let request = Request {
-                op: OpType::SET,
-                key: key,
-                value: value,
-            };
-
-            let response = hand_rpc(request, &mut stream);
-            info!("{:?}", response);
-
-        } // set was used
+            KvsClient::set(key, value, addr);
+        }
         Some(("rm", sub_m)) => {
             let key = String::from(sub_m.value_of("KEY").unwrap());
-            let addr = String::from(sub_m.value_of("addr").unwrap());
+            let addr = sub_m.value_of("addr").unwrap();
 
-            info!("rm key: {}, addr: {}", key, addr);
-
-            let mut stream = TcpStream::connect(&addr).unwrap_or_else(|err| {
-                error!("Error happened when connect {}, error: {}", addr, &err);
-                exit(1);
-            });
-
-            let request = Request {
-                op: OpType::RM,
-                key: key,
-                value: "".to_owned(),
-            };
-
-            let response = hand_rpc(request, &mut stream);
-            info!("{:?}", response);
+            let response = KvsClient::remove(key, addr);
 
             match response.status {
                 KvsError::ErrKeyNotFound => {
@@ -136,20 +91,5 @@ fn main() {
             panic!("unknown err");
         }
     }
-}
 
-fn hand_rpc(request: Request, stream: &mut TcpStream) -> Response {
-    let request = serde_json::to_string(&request).unwrap();
-    info!("request: {}", request);
-    let request_len = request.len() as u32;
-    stream.write(&request_len.to_be_bytes()).unwrap();
-    stream.write(request.as_bytes()).unwrap();
-    stream.flush().unwrap();
-
-    let mut buffer = [0; 4]; // request len
-    stream.read(&mut buffer).unwrap();
-    let request_len = u32::from_be_bytes(buffer);
-    let data = read_n(stream, request_len as u64);
-    let response: Response = serde_json::from_slice(&data).unwrap();
-    return response;
 }
