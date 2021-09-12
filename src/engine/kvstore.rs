@@ -4,7 +4,7 @@ use crate::io::{get_sst_from_dir_with_prefix, own_dir_or_not, read_n, write_kv};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::{
     collections::HashMap,
     fs::{self, File},
@@ -15,10 +15,10 @@ use std::{
 /// Key/value pairs are stored in a `HashMap` in memory
 ///
 pub struct KvStore {
-    index: Arc<Mutex<HashMap<String, FileOffset>>>,
-    write_handler: Arc<Mutex<File>>,
-    current_dir: Arc<Mutex<PathBuf>>,
-    current_write_file: Arc<Mutex<u64>>,
+    index: Arc<RwLock<HashMap<String, FileOffset>>>,
+    write_handler: Arc<RwLock<File>>,
+    current_dir: Arc<RwLock<PathBuf>>,
+    current_write_file: Arc<RwLock<u64>>,
 }
 
 struct FileOffset {
@@ -70,9 +70,9 @@ impl KvsEngine for KvStore {
     fn set(&self, key: String, val: String) -> Result<()> {
         self.compaction();
 
-        let mut index = self.index.lock().unwrap();
-        let mut write_handler = self.write_handler.lock().unwrap();
-        let current_write_file = self.current_write_file.lock().unwrap();
+        let mut index = self.index.write().unwrap();
+        let mut write_handler = self.write_handler.write().unwrap();
+        let current_write_file = self.current_write_file.write().unwrap();
 
         let len = write_handler.metadata().unwrap().len();
         let kv = KV::new(key.clone(), val, 1);
@@ -90,8 +90,8 @@ impl KvsEngine for KvStore {
     /// get kv pair
     /// Set the value of a string key to a string. Return an error if the value is not written successfully.
     fn get(&self, key: String) -> Result<Option<String>> {
-        let index = self.index.lock().unwrap();
-        let current_dir = self.current_dir.lock().unwrap();
+        let index = self.index.read().unwrap();
+        let current_dir = self.current_dir.read().unwrap();
 
         if let Some(fo) = index.get(&key) {
             return KvStore::get_value_by_file_index(
@@ -105,9 +105,9 @@ impl KvsEngine for KvStore {
     /// remove kv pair
     /// Remove a given key. Return an error if the key does not exist or is not removed successfully.
     fn remove(&self, key: String) -> Result<()> {
-        let mut index = self.index.lock().unwrap();
-        let mut write_handler = self.write_handler.lock().unwrap();
-        let current_write_file = self.current_write_file.lock().unwrap();
+        let mut index = self.index.write().unwrap();
+        let mut write_handler = self.write_handler.write().unwrap();
+        let current_write_file = self.current_write_file.write().unwrap();
 
         let idx = index.get(&key);
         match idx {
@@ -131,10 +131,10 @@ impl KvsEngine for KvStore {
 
 impl KvStore {
     fn compaction(&self) {
-        let mut index = self.index.lock().unwrap();
-        let mut write_handler = self.write_handler.lock().unwrap();
-        let current_dir = self.current_dir.lock().unwrap();
-        let mut current_write_file = self.current_write_file.lock().unwrap();
+        let mut index = self.index.write().unwrap();
+        let mut write_handler = self.write_handler.write().unwrap();
+        let current_dir = self.current_dir.write().unwrap();
+        let mut current_write_file = self.current_write_file.write().unwrap();
 
         let len = write_handler.metadata().unwrap().len();
         if len < ONE_SST_FILE_MAX_SIZE {
@@ -270,10 +270,10 @@ impl KvStore {
                 panic!("can not open the path : {}", err);
             });
         let store = KvStore {
-            index: Arc::new(Mutex::new(HashMap::new())),
-            write_handler: Arc::new(Mutex::new(write_handler)),
-            current_write_file: Arc::new(Mutex::new(file_idx)),
-            current_dir: Arc::new(Mutex::new(path)),
+            index: Arc::new(RwLock::new(HashMap::new())),
+            write_handler: Arc::new(RwLock::new(write_handler)),
+            current_write_file: Arc::new(RwLock::new(file_idx)),
+            current_dir: Arc::new(RwLock::new(path)),
         };
         store.init();
         Ok(store)
@@ -281,12 +281,12 @@ impl KvStore {
 
     /// init kvstore, read all index into memory
     pub fn init(&self) {
-        let mut index = self.index.lock().unwrap();
+        let mut index = self.index.write().unwrap();
         *index = self.read_all_index();
     }
 
     fn read_all_index(&self) -> HashMap<String, FileOffset> {
-        let current_dir = self.current_dir.lock().unwrap();
+        let current_dir = self.current_dir.write().unwrap();
 
         let mut index: HashMap<String, FileOffset> = HashMap::new();
         let sst_files = get_sst_from_dir_with_prefix(current_dir.clone(), "sst".to_owned());

@@ -6,10 +6,8 @@ use clap::{App, Arg};
 use kvs::{KvServer, KvStore, SledStore, thread_pool::*};
 #[allow(unused)]
 use log::{debug, error, info, warn, LevelFilter};
-use core::time;
 use std::env::current_dir;
 use std::env;
-use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
 use std::sync::{mpsc::{Receiver, Sender}, mpsc};
 
 fn main() {
@@ -43,30 +41,21 @@ fn main() {
     info!("Addr: {}, Engine: {}", addr, engine);
 
     let pool = SharedQueueThreadPool::new(num_cpus::get() as u32).unwrap();
-    let (server_stop_tx, server_stop_rx): (Sender<i32>, Receiver<i32>) = mpsc::channel();
+    let (_, server_stop_rx): (Sender<i32>, Receiver<i32>) = mpsc::channel();
 
     match engine {
         "kvs" => {
             let store = KvStore::open(current_dir().unwrap()).unwrap();
-            let server = KvServer::new(store, pool, addr, server_stop_rx);
-            std::thread::spawn(move || {
-                server.start();
-            }); 
+            let server = KvServer::new(store, pool, addr, server_stop_rx);            
+            server.start();
         },
         "sled" => {
             let store = SledStore::open(current_dir().unwrap()).unwrap();
-            let server = KvServer::new(store, pool, addr, server_stop_rx);
-            std::thread::spawn(move || {
-                server.start();
-            }); 
+            let server = KvServer::new(store, pool, addr, server_stop_rx);            
+            server.start();
         },
         _ => {
             panic!("{} engine is not satisfied.", engine)
         }
     }
-
-    std::thread::sleep(time::Duration::from_secs(1));
-    server_stop_tx.send(1).unwrap();
-    TcpStream::connect(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 4000)).unwrap();
-    std::thread::sleep(time::Duration::from_secs(3));
 }
