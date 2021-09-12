@@ -11,7 +11,6 @@ use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream};
 use std::{env, process::exit};
 
-
 fn main() {
     env_logger::Builder::new()
         .target(env_logger::Target::Stderr)
@@ -48,12 +47,18 @@ fn main() {
     });
     info!("Now Server is listening on: {}", addr);
 
-    if engine == "kvs" {
-        let store = KvStore::open(current_dir().unwrap()).unwrap();
-        start_server(store, listener);
-    }else {
-        let store = SledStore::open(current_dir().unwrap()).unwrap();
-        start_server(store, listener);
+    match engine {
+        "kvs" => {
+            let store = KvStore::open(current_dir().unwrap()).unwrap();
+            start_server(store, listener);
+        },
+        "sled" => {
+            let store = SledStore::open(current_dir().unwrap()).unwrap();
+            start_server(store, listener);
+        },
+        _ => {
+            panic!("{} engine is not satisfied.", engine)
+        }
     }
 }
 
