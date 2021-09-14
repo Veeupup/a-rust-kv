@@ -1,13 +1,14 @@
 use std::net::TcpStream;
 
-use log::{info, error};
+use log::{error, info};
 
 use crate::io::read_n;
-use crate::{Response, Request, OpType};
-use std::io::{Read,Write};
-use std::{process::exit};
+use crate::{OpType, Request, Response};
+use std::io::{Read, Write};
+use std::process::exit;
 
 /// kvsclient
+/// it can send network request to the kv server
 pub struct KvsClient {}
 
 impl KvsClient {
@@ -78,4 +79,3 @@ fn hand_rpc(request: Request, stream: &mut TcpStream) -> Response {
     let response: Response = serde_json::from_slice(&data).unwrap();
     return response;
 }
-

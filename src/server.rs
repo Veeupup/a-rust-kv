@@ -3,14 +3,15 @@ use std::net::{TcpListener, TcpStream};
 use std::process::exit;
 use std::sync::mpsc::Receiver;
 
-use log::{info, error};
-
+use log::{error, info};
 
 use crate::io::read_n;
-use crate::{KvsError, OpType, Request, Response};
 use crate::{thread_pool::ThreadPool, KvsEngine};
+use crate::{KvsError, OpType, Request, Response};
 
 /// kvserver
+/// it can specify store engine and thread pool
+/// it will serving network requests
 pub struct KvServer<E, P> {
     engine: E,
     pool: P,
@@ -42,10 +43,10 @@ impl<E: KvsEngine, P: ThreadPool> KvServer<E, P> {
                 Ok(_) => {
                     info!("server stop");
                     break;
-                },
+                }
                 Err(_) => {}
             }
-            
+
             let store = self.engine.clone();
             self.pool.spawn(move || {
                 handle_connection(store, stream.unwrap());

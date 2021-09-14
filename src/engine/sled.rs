@@ -3,10 +3,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use crate::io::own_dir_or_not;
 use crate::KvsEngine;
 use crate::KvsError;
 use crate::Result;
-use crate::io::own_dir_or_not;
 
 /// Seld store
 pub struct SledStore {
@@ -16,7 +16,7 @@ pub struct SledStore {
 impl Clone for SledStore {
     fn clone(&self) -> Self {
         SledStore {
-            db: self.db.clone()
+            db: self.db.clone(),
         }
     }
 
@@ -28,7 +28,11 @@ impl Clone for SledStore {
 impl KvsEngine for SledStore {
     /// set kv pair
     fn set(&self, key: String, value: String) -> Result<()> {
-        let _ = self.db.lock().unwrap().insert(key.as_bytes(), value.as_bytes());
+        let _ = self
+            .db
+            .lock()
+            .unwrap()
+            .insert(key.as_bytes(), value.as_bytes());
         self.db.lock().unwrap().flush().unwrap();
         Ok(())
     }
@@ -40,8 +44,8 @@ impl KvsEngine for SledStore {
                 if let Some(value) = result {
                     let value = String::from(std::str::from_utf8(&value.deref()).unwrap());
                     return Ok(Some(value));
-                }else {
-                    return Ok(None)
+                } else {
+                    return Ok(None);
                 }
             }
             Err(_) => {
@@ -52,7 +56,7 @@ impl KvsEngine for SledStore {
     /// remove kv pair
     fn remove(&self, key: String) -> Result<()> {
         match self.db.lock().unwrap().get(key.clone()).unwrap() {
-            Some(_) => {},
+            Some(_) => {}
             None => {
                 return Err(KvsError::ErrKeyNotFound);
             }
@@ -69,6 +73,8 @@ impl SledStore {
         let path = path.into();
         own_dir_or_not(path.clone(), "sled");
         let tree = sled::open(path).unwrap();
-        Ok(SledStore { db: Arc::new(Mutex::new(tree)) })
+        Ok(SledStore {
+            db: Arc::new(Mutex::new(tree)),
+        })
     }
 }

@@ -1,9 +1,9 @@
-use rayon::{ThreadPool, ThreadPoolBuilder};
 use super::ThreadPool as ThreadPoolTrait;
 use crate::Result;
+use rayon::{ThreadPool, ThreadPoolBuilder};
 
 /// Rayon Thread Pool
-pub struct RayonThreadPool{
+pub struct RayonThreadPool {
     pool: ThreadPool,
 }
 
@@ -15,9 +15,7 @@ impl ThreadPoolTrait for RayonThreadPool {
     {
         let pool_builder = ThreadPoolBuilder::new().num_threads(threads as usize);
         let pool = pool_builder.build().unwrap();
-        Ok(RayonThreadPool {
-            pool: pool,
-        })
+        Ok(RayonThreadPool { pool: pool })
     }
 
     /// spawn
@@ -28,4 +26,3 @@ impl ThreadPoolTrait for RayonThreadPool {
         self.pool.spawn(job)
     }
 }
-

@@ -61,7 +61,7 @@ struct Worker {
 }
 
 impl Worker {
-    fn new(id: u32, receiver: Arc<Mutex<mpsc::Receiver<Message>>>){
+    fn new(id: u32, receiver: Arc<Mutex<mpsc::Receiver<Message>>>) {
         let worker = Worker {
             id: id,
             receiver: receiver.clone(),
@@ -72,6 +72,8 @@ impl Worker {
 
 impl Drop for Worker {
     fn drop(&mut self) {
+        // if one thread panic, it will recreate a worker to work as the threads number
+        // in the thread pool will not decrease
         if thread::panicking() {
             let new_worker = self.clone();
             take_job(new_worker);

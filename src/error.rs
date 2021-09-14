@@ -3,16 +3,12 @@ use failure::Fail;
 use serde::{Deserialize, Serialize};
 
 /// Error in Kvs Store
-#[derive(Serialize, Deserialize, Debug)]
-#[derive(Fail)]
+#[derive(Serialize, Deserialize, Debug, Fail)]
 pub enum KvsError {
-    /// a
-    #[fail(display = "File not found")]
-    ErrStoreFileNotFound,
-    ///
+    /// Key not found
     #[fail(display = "Key not found")]
     ErrKeyNotFound,
-    /// ok
+    /// OK
     #[fail(display = "OK")]
     ErrOk,
 }

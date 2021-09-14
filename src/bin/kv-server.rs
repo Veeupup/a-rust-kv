@@ -3,12 +3,15 @@ extern crate failure_derive;
 extern crate num_cpus;
 
 use clap::{App, Arg};
-use kvs::{KvServer, KvStore, SledStore, thread_pool::*};
+use kvs::{thread_pool::*, KvServer, KvStore, SledStore};
 #[allow(unused)]
 use log::{debug, error, info, warn, LevelFilter};
-use std::env::current_dir;
 use std::env;
-use std::sync::{mpsc::{Receiver, Sender}, mpsc};
+use std::env::current_dir;
+use std::sync::{
+    mpsc,
+    mpsc::{Receiver, Sender},
+};
 
 fn main() {
     env_logger::Builder::new()
@@ -46,14 +49,14 @@ fn main() {
     match engine {
         "kvs" => {
             let store = KvStore::open(current_dir().unwrap()).unwrap();
-            let server = KvServer::new(store, pool, addr, server_stop_rx);            
+            let server = KvServer::new(store, pool, addr, server_stop_rx);
             server.start();
-        },
+        }
         "sled" => {
             let store = SledStore::open(current_dir().unwrap()).unwrap();
-            let server = KvServer::new(store, pool, addr, server_stop_rx);            
+            let server = KvServer::new(store, pool, addr, server_stop_rx);
             server.start();
-        },
+        }
         _ => {
             panic!("{} engine is not satisfied.", engine)
         }

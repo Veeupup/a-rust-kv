@@ -1,7 +1,7 @@
 use engine::KV;
 use std::fs::{self, read_dir, File};
 use std::io::{Read, Write};
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::process::exit;
 
 use crate::engine;
@@ -18,6 +18,7 @@ where
     buf
 }
 
+/// write a kv to the file
 pub fn write_kv(file: &mut File, kv: KV) {
     let serialized = serde_json::to_string(&kv).unwrap();
     let key_len = serialized.len() as u32;
@@ -25,6 +26,7 @@ pub fn write_kv(file: &mut File, kv: KV) {
     file.write(serialized.as_bytes()).unwrap();
 }
 
+/// get files from dir by prefix
 pub fn get_sst_from_dir_with_prefix(dir: impl Into<PathBuf>, prefix: String) -> Vec<String> {
     let paths = read_dir(dir.into()).unwrap();
     let mut files: Vec<String> = paths

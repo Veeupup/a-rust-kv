@@ -104,3 +104,23 @@ compaction 的过程描述：
 
 当某个线程 panic 的时候，直接再复制一个当前这个线程出来，这个时候就需要把原来接受任务的 receiver 传递到线程中去，要保存这个，只要根据这个就能够拿到新的任务了！
 
+# Lock-free
+
+如果想要实现 lock free, 可以考虑把 kvstore 改写一下, 目前根据 lock free 本身的 project 说明，可以来进行优化
+
+
+
+
+
+压缩策略：
+* 使用 uncompacted 参数, 用来触发 compact, 代表，每当写入 100 条重复的 key 时候来进行 compact
+
+lock free:
+思路：
+使用 rwlock 保护 index，get 和 set 都拿读锁
+
+* get 的时候，先拿到 读锁，然后知道要读取的文件，使用 map 保存需要读取的文件，当返回的时候把这个文件从 map 中删除掉，map 为
+
+set 的时候是 append only 的，直到真的
+
+

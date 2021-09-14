@@ -1,7 +1,7 @@
 use crate::engine::KvsEngine;
 use crate::error::{KvsError, Result};
 use crate::io::{get_sst_from_dir_with_prefix, own_dir_or_not, read_n, write_kv};
-use serde::{Deserialize, Serialize};
+use crossbeam::atomic::AtomicCell;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -10,15 +10,19 @@ use std::{
     fs::{self, File},
 };
 
+use super::util::KV;
+
 /// The `KvStore` stores string key/value pairs.
 ///
 /// Key/value pairs are stored in a `HashMap` in memory
 ///
+#[derive(Clone)]
 pub struct KvStore {
+    current_dir: PathBuf,
     index: Arc<RwLock<HashMap<String, FileOffset>>>,
     write_handler: Arc<RwLock<File>>,
-    current_dir: Arc<RwLock<PathBuf>>,
     current_write_file: Arc<RwLock<u64>>,
+    uncompacted: Arc<AtomicCell<u64>>,
 }
 
 struct FileOffset {
@@ -26,53 +30,25 @@ struct FileOffset {
     offset: u64,
 }
 
-/// KV for kvstore
-#[derive(Serialize, Deserialize, Debug)]
-pub struct KV {
-    version: u32,
-    key: String,
-    value: String,
-}
-
-impl KV {
-    fn new(key: String, value: String, version: u32) -> KV {
-        KV {
-            version: version,
-            key: key,
-            value: value,
-        }
-    }
-}
-
 const ONE_SST_FILE_MAX_SIZE: u64 = 1024 * 1024 * 10;
-
-impl Clone for KvStore {
-    fn clone(&self) -> Self {
-        KvStore {
-            index: self.index.clone(),
-            write_handler: self.write_handler.clone(),
-            current_write_file: self.current_write_file.clone(),
-            current_dir: self.current_dir.clone(),
-        }
-    }
-
-    fn clone_from(&mut self, source: &Self) {
-        self.index = source.index.clone();
-        self.write_handler = source.write_handler.clone();
-        self.current_write_file = source.current_write_file.clone();
-        self.current_dir = source.current_dir.clone();
-    }
-}
+const UNCOMPACTED_KEY_COUNTS: u64 = 100;
 
 impl KvsEngine for KvStore {
     /// set kv pair
     /// Get the string value of a string key. If the key does not exist, return None. Return an error if the value is not read successfully.
     fn set(&self, key: String, val: String) -> Result<()> {
-        self.compaction();
+        if self.uncompacted.load() > UNCOMPACTED_KEY_COUNTS {
+            self.compaction();
+        }
 
         let mut index = self.index.write().unwrap();
         let mut write_handler = self.write_handler.write().unwrap();
         let current_write_file = self.current_write_file.write().unwrap();
+
+        // if duplicate key insert, add uncompacted
+        if let Some(_) = index.get(&key) {
+            self.uncompacted.fetch_add(1);
+        }
 
         let len = write_handler.metadata().unwrap().len();
         let kv = KV::new(key.clone(), val, 1);
@@ -91,7 +67,7 @@ impl KvsEngine for KvStore {
     /// Set the value of a string key to a string. Return an error if the value is not written successfully.
     fn get(&self, key: String) -> Result<Option<String>> {
         let index = self.index.read().unwrap();
-        let current_dir = self.current_dir.read().unwrap();
+        let current_dir = self.current_dir.clone();
 
         if let Some(fo) = index.get(&key) {
             return KvStore::get_value_by_file_index(
@@ -131,9 +107,9 @@ impl KvsEngine for KvStore {
 
 impl KvStore {
     fn compaction(&self) {
+        let current_dir = self.current_dir.clone();
         let mut index = self.index.write().unwrap();
         let mut write_handler = self.write_handler.write().unwrap();
-        let current_dir = self.current_dir.write().unwrap();
         let mut current_write_file = self.current_write_file.write().unwrap();
 
         let len = write_handler.metadata().unwrap().len();
@@ -273,7 +249,8 @@ impl KvStore {
             index: Arc::new(RwLock::new(HashMap::new())),
             write_handler: Arc::new(RwLock::new(write_handler)),
             current_write_file: Arc::new(RwLock::new(file_idx)),
-            current_dir: Arc::new(RwLock::new(path)),
+            current_dir: path,
+            uncompacted: Arc::new(AtomicCell::new(0)),
         };
         store.init();
         Ok(store)
@@ -286,7 +263,7 @@ impl KvStore {
     }
 
     fn read_all_index(&self) -> HashMap<String, FileOffset> {
-        let current_dir = self.current_dir.write().unwrap();
+        let current_dir = self.current_dir.clone();
 
         let mut index: HashMap<String, FileOffset> = HashMap::new();
         let sst_files = get_sst_from_dir_with_prefix(current_dir.clone(), "sst".to_owned());

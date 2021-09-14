@@ -55,11 +55,10 @@ fn main() {
             match response.status {
                 KvsError::ErrKeyNotFound => {
                     println!("{}", response.status);
-                },
+                }
                 KvsError::ErrOk => {
                     println!("{}", response.value);
-                },
-                _ => {}
+                }
             }
         }
         Some(("set", sub_m)) => {
@@ -79,17 +78,12 @@ fn main() {
                 KvsError::ErrKeyNotFound => {
                     eprintln!("Key not found");
                     exit(1);
-                },
-                KvsError::ErrOk => {
-                    
-                },
-                _ => {}
+                }
+                KvsError::ErrOk => {}
             }
-
         } // rm was used
         _ => {
             panic!("unknown err");
         }
     }
-
 }
