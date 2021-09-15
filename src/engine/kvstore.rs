@@ -2,15 +2,20 @@ use crate::engine::KvsEngine;
 use crate::error::{KvsError, Result};
 use crate::io::{get_sst_from_dir_with_prefix, own_dir_or_not, read_n, write_kv};
 use crossbeam::atomic::AtomicCell;
+use dashmap::{DashMap, DashSet};
+use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use std::{
-    collections::HashMap,
-    fs::{self, File},
-};
+use std::u64;
 
 use super::util::KV;
+
+#[derive(Clone)]
+struct FileOffset {
+    file: u64,
+    offset: u64,
+}
 
 /// The `KvStore` stores string key/value pairs.
 ///
@@ -19,16 +24,12 @@ use super::util::KV;
 #[derive(Clone)]
 pub struct KvStore {
     current_dir: PathBuf,
-    index: Arc<RwLock<HashMap<String, FileOffset>>>,
+    index: Arc<DashMap<String, FileOffset>>,
+    reader_count: Arc<DashMap<u64, u64>>, // 记录哪些文件正在被读，不能被 compaction 删除
+    old_sst_files: Arc<DashSet<String>>, // 旧版本的 sst，不能再被使用，下次 compaction 的时候会被删除掉
     write_handler: Arc<RwLock<File>>,
     writer_index: Arc<RwLock<u64>>,
     uncompacted: Arc<AtomicCell<u64>>,
-}
-
-#[derive(Clone)]
-struct FileOffset {
-    file: u64,
-    offset: u64,
 }
 
 const ONE_SST_FILE_MAX_SIZE: u64 = 1024;
@@ -42,18 +43,17 @@ impl KvsEngine for KvStore {
             self.compaction();
         }
 
-        let mut index = self.index.write().unwrap();
         let mut write_handler = self.write_handler.write().unwrap();
         let mut writer_index = self.writer_index.write().unwrap();
 
         // if duplicate key insert, add uncompacted
-        if let Some(_) = index.get(&key) {
+        if let Some(_) = self.index.get(&key) {
             self.uncompacted.fetch_add(1);
         }
 
         let len = write_handler.metadata().unwrap().len();
         let kv = KV::new(key.clone(), val, 1);
-        index.insert(
+        self.index.insert(
             key,
             FileOffset {
                 file: writer_index.clone(),
@@ -82,36 +82,44 @@ impl KvsEngine for KvStore {
     /// get kv pair
     /// Set the value of a string key to a string. Return an error if the value is not written successfully.
     fn get(&self, key: String) -> Result<Option<String>> {
-        let index = self.index.read().unwrap();
+        // let index = self.index.read().unwrap();
         let current_dir = self.current_dir.clone();
 
-        if let Some(fo) = index.get(&key) {
-            return KvStore::get_value_by_file_index(
-                current_dir.clone(),
-                fo.file.clone(),
-                fo.offset,
-            );
+        if let Some(fo) = self.index.get(&key) {
+            if self.reader_count.contains_key(&fo.file) {
+                *self.reader_count.get_mut(&fo.file).unwrap() += 1;
+            } else {
+                self.reader_count.insert(fo.file, 1);
+            }
+            let res =
+                KvStore::get_value_by_file_index(current_dir.clone(), fo.file.clone(), fo.offset);
+            if self.reader_count.contains_key(&fo.file) {
+                *self.reader_count.get_mut(&fo.file).unwrap() -= 1;
+            }
+            return res;
         }
         return Ok(None);
     }
     /// remove kv pair
     /// Remove a given key. Return an error if the key does not exist or is not removed successfully.
     fn remove(&self, key: String) -> Result<()> {
-        let mut index = self.index.write().unwrap();
+        // let mut index = self.index.write().unwrap();
         let mut write_handler = self.write_handler.write().unwrap();
-        let writer_index = self.writer_index.write().unwrap();
+        let writer_index = self.writer_index.read().unwrap();
 
-        let idx = index.get(&key);
-        match idx {
-            Some(_) => {}
-            None => return Err(KvsError::ErrKeyNotFound),
+        {
+            // if hold the reference of the map, then insert will deadlock
+            let idx = self.index.get(&key);
+            match idx {
+                Some(_) => {}
+                None => return Err(KvsError::ErrKeyNotFound),
+            }
         }
-
         let len = write_handler.metadata().unwrap().len();
-        index.insert(
+        self.index.insert(
             key.clone(),
             FileOffset {
-                file: writer_index.clone(),
+                file: *writer_index,
                 offset: len,
             },
         );
@@ -123,8 +131,15 @@ impl KvsEngine for KvStore {
 
 impl KvStore {
     fn compaction(&self) {
+        // 删除旧的 sst，上次在 compaction 的时候仍有读者在读的旧的 sst
+        for (_, file) in self.old_sst_files.iter().enumerate() {
+            let file = self.current_dir.clone().join(file.clone());
+            // 如果不包含在仍然要保存的 sst 中，那么就可以删除掉
+            fs::remove_file(file).unwrap();
+        }
+
         let current_dir = self.current_dir.clone();
-        let mut index = self.index.write().unwrap();
+        // let mut index = self.index.write().unwrap();
         let mut write_handler = self.write_handler.write().unwrap();
         let mut writer_index = self.writer_index.write().unwrap();
 
@@ -147,11 +162,12 @@ impl KvStore {
             .unwrap();
 
         // 保存旧的 index，并且遍历来生成新的 sst
-        let old_index = index.clone();
+        let old_index = (*self.index).clone();
 
-        for (key, _) in old_index {
+        for key_file_offset in &old_index {
+            let key = key_file_offset.key();
             // 只处理仍然存在的 key，如果 key 不存在或者被删除了，那么就不需要写到新的里面去了
-            if let Some(fo) = index.get(&key) {
+            if let Some(fo) = old_index.get(key) {
                 let value = KvStore::get_value_by_file_index(
                     current_dir.clone(),
                     fo.file.clone(),
@@ -162,7 +178,7 @@ impl KvStore {
 
                 let len = write_handler.metadata().unwrap().len();
                 let kv = KV::new(key.clone(), value, 1);
-                index.insert(
+                self.index.insert(
                     key.clone(),
                     FileOffset {
                         file: *writer_index,
@@ -181,14 +197,31 @@ impl KvStore {
                         .open(file)
                         .unwrap();
                 }
+            } else {
+                self.index.remove(key);
+            }
+        }
+
+        // 这里记录下当前有读者仍然在读的文件，不能删除这些 sst，因为读者还在读
+        // 从现在开始，已经更新了索引，现在再来读者也是去新的 sst 里面读，因此只要等到老的读者读完了，就可以安全的删除了
+        // 可以将 过期的 log 保存起来，下次 compaction 的时候再删除即可
+        for (_, reader_count) in self.reader_count.iter().enumerate() {
+            // old sst, can not delete, it will delete in next compaction
+            if *reader_count.value() > 0 {
+                self.old_sst_files
+                    .insert(format!("sst_{}", *reader_count.key()));
+            } else {
+                self.reader_count.remove(reader_count.key());
             }
         }
 
         // 删除旧的 sst
-        for file in old_files {
-            let file = current_dir.clone().join(file);
-            println!("delete old {:?}", file);
-            fs::remove_file(file).unwrap();
+        for filename in old_files {
+            let file = current_dir.clone().join(filename.clone());
+            // 如果不包含在仍然要保存的 sst 中，那么就可以删除掉
+            if !self.old_sst_files.contains(&filename) {
+                fs::remove_file(file).unwrap();
+            }
         }
     }
 
@@ -246,8 +279,10 @@ impl KvStore {
                 panic!("can not open the path : {}", err);
             });
         let store = KvStore {
-            index: Arc::new(RwLock::new(HashMap::new())),
+            index: Arc::new(DashMap::new()),
             write_handler: Arc::new(RwLock::new(write_handler)),
+            reader_count: Arc::new(DashMap::new()),
+            old_sst_files: Arc::new(DashSet::new()),
             writer_index: Arc::new(RwLock::new(file_idx)),
             current_dir: path,
             uncompacted: Arc::new(AtomicCell::new(0)),
@@ -258,14 +293,13 @@ impl KvStore {
 
     /// init kvstore, read all index into memory
     pub fn init(&self) {
-        let mut index = self.index.write().unwrap();
-        *index = self.read_all_index();
+        self.read_all_index();
     }
 
-    fn read_all_index(&self) -> HashMap<String, FileOffset> {
+    fn read_all_index(&self) {
         let current_dir = self.current_dir.clone();
 
-        let mut index: HashMap<String, FileOffset> = HashMap::new();
+        // let mut index: HashMap<String, FileOffset> = HashMap::new();
         let sst_files = get_sst_from_dir_with_prefix(current_dir.clone(), "sst".to_owned());
         for file in sst_files {
             let pos = file.find("_").unwrap();
@@ -287,7 +321,7 @@ impl KvStore {
                 }
                 let data = read_n(&mut read_handler, key_len as u64);
                 let kv: KV = serde_json::from_slice(&data).unwrap();
-                index.insert(
+                self.index.insert(
                     kv.key,
                     FileOffset {
                         file: file_idx,
@@ -297,6 +331,5 @@ impl KvStore {
                 offset += 4 + key_len as u64;
             }
         }
-        return index;
     }
 }

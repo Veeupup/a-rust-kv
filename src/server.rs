@@ -41,7 +41,7 @@ impl<E: KvsEngine, P: ThreadPool> KvServer<E, P> {
             let stop_singal = self.stop_rx.try_recv();
             match stop_singal {
                 Ok(_) => {
-                    info!("server stop");
+                    info!("Server stop");
                     break;
                 }
                 Err(_) => {}
@@ -62,7 +62,7 @@ fn handle_connection<E: KvsEngine>(store: E, mut stream: TcpStream) {
     let data = read_n(&mut stream, request_len as u64);
     let request: Request = serde_json::from_slice(&data).unwrap();
 
-    info!("Request : {:?}", request);
+    info!("Request : {:?}" ,request);
 
     let mut write_reponse = |response: &mut Response| {
         let response = serde_json::to_string(&response).unwrap();

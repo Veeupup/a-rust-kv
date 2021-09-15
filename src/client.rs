@@ -66,7 +66,6 @@ impl KvsClient {
 
 fn hand_rpc(request: Request, stream: &mut TcpStream) -> Response {
     let request = serde_json::to_string(&request).unwrap();
-    info!("request: {}", request);
     let request_len = request.len() as u32;
     stream.write(&request_len.to_be_bytes()).unwrap();
     stream.write(request.as_bytes()).unwrap();
