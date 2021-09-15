@@ -43,6 +43,7 @@ sled = "0.34.6"
 num_cpus = "1.13.0"
 rayon = "1.5.1"
 crossbeam = "0.8.1"
+dashmap = "4.0.2"
 
 # [[bench]]
 # name = "read_write_bench"
