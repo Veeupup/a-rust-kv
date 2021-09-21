@@ -1,6 +1,6 @@
 use std::net::TcpStream;
 
-use log::{error, info};
+use log::error;
 
 use crate::io::read_n;
 use crate::{OpType, Request, Response};

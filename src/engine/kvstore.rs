@@ -2,10 +2,12 @@ use crate::engine::KvsEngine;
 use crate::error::{KvsError, Result};
 use crate::io::{get_sst_from_dir_with_prefix, own_dir_or_not, read_n, write_kv};
 use crossbeam::atomic::AtomicCell;
-use dashmap::{DashMap, DashSet};
+use dashmap::DashMap;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
 use std::u64;
 
@@ -25,11 +27,10 @@ struct FileOffset {
 pub struct KvStore {
     current_dir: PathBuf,
     index: Arc<DashMap<String, FileOffset>>,
-    reader_count: Arc<DashMap<u64, u64>>, // 记录哪些文件正在被读，不能被 compaction 删除
-    old_sst_files: Arc<DashSet<String>>, // 旧版本的 sst，不能再被使用，下次 compaction 的时候会被删除掉
+    reader_count: Arc<AtomicU32>, // readers count
     write_handler: Arc<RwLock<File>>,
     writer_index: Arc<RwLock<u64>>,
-    uncompacted: Arc<AtomicCell<u64>>,
+    uncompacted: Arc<AtomicCell<u64>>, // repeated keys count, for compaction
 }
 
 const ONE_SST_FILE_MAX_SIZE: u64 = 1024;
@@ -86,16 +87,10 @@ impl KvsEngine for KvStore {
         let current_dir = self.current_dir.clone();
 
         if let Some(fo) = self.index.get(&key) {
-            if self.reader_count.contains_key(&fo.file) {
-                *self.reader_count.get_mut(&fo.file).unwrap() += 1;
-            } else {
-                self.reader_count.insert(fo.file, 1);
-            }
+            self.reader_count.fetch_add(1, Ordering::SeqCst);
             let res =
                 KvStore::get_value_by_file_index(current_dir.clone(), fo.file.clone(), fo.offset);
-            if self.reader_count.contains_key(&fo.file) {
-                *self.reader_count.get_mut(&fo.file).unwrap() -= 1;
-            }
+            self.reader_count.fetch_sub(1, Ordering::SeqCst);
             return res;
         }
         return Ok(None);
@@ -131,13 +126,6 @@ impl KvsEngine for KvStore {
 
 impl KvStore {
     fn compaction(&self) {
-        // 删除旧的 sst，上次在 compaction 的时候仍有读者在读的旧的 sst
-        for (_, file) in self.old_sst_files.iter().enumerate() {
-            let file = self.current_dir.clone().join(file.clone());
-            // 如果不包含在仍然要保存的 sst 中，那么就可以删除掉
-            fs::remove_file(file).unwrap();
-        }
-
         let current_dir = self.current_dir.clone();
         // let mut index = self.index.write().unwrap();
         let mut write_handler = self.write_handler.write().unwrap();
@@ -205,23 +193,12 @@ impl KvStore {
         // 这里记录下当前有读者仍然在读的文件，不能删除这些 sst，因为读者还在读
         // 从现在开始，已经更新了索引，现在再来读者也是去新的 sst 里面读，因此只要等到老的读者读完了，就可以安全的删除了
         // 可以将 过期的 log 保存起来，下次 compaction 的时候再删除即可
-        for (_, reader_count) in self.reader_count.iter().enumerate() {
-            // old sst, can not delete, it will delete in next compaction
-            if *reader_count.value() > 0 {
-                self.old_sst_files
-                    .insert(format!("sst_{}", *reader_count.key()));
-            } else {
-                self.reader_count.remove(reader_count.key());
-            }
-        }
+        while self.reader_count.load(Ordering::SeqCst) > 0 {}
 
         // 删除旧的 sst
-        for filename in old_files {
+        for filename in &old_files {
             let file = current_dir.clone().join(filename.clone());
-            // 如果不包含在仍然要保存的 sst 中，那么就可以删除掉
-            if !self.old_sst_files.contains(&filename) {
-                fs::remove_file(file).unwrap();
-            }
+            fs::remove_file(file).unwrap();
         }
     }
 
@@ -281,8 +258,7 @@ impl KvStore {
         let store = KvStore {
             index: Arc::new(DashMap::new()),
             write_handler: Arc::new(RwLock::new(write_handler)),
-            reader_count: Arc::new(DashMap::new()),
-            old_sst_files: Arc::new(DashSet::new()),
+            reader_count: Arc::new(AtomicU32::new(0)),
             writer_index: Arc::new(RwLock::new(file_idx)),
             current_dir: path,
             uncompacted: Arc::new(AtomicCell::new(0)),
