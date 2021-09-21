@@ -13,6 +13,10 @@ use std::u64;
 
 use super::util::KV;
 
+const ONE_SST_FILE_MAX_SIZE: u64 = 1024;
+const UNCOMPACTED_KEY_COUNTS: u64 = 100;
+
+/// for log position
 #[derive(Clone)]
 struct FileOffset {
     file: u64,
@@ -20,9 +24,25 @@ struct FileOffset {
 }
 
 /// The `KvStore` stores string key/value pairs.
+/// It is a reader lock-free kv store, and it will compact automatically
 ///
-/// Key/value pairs are stored in a `HashMap` in memory
+/// here is the usage
+/// ```
+/// use kvs::{KvStore, KvsEngine, Result};
+/// use tempfile::TempDir;
 ///
+/// let temp_dir = TempDir::new().expect("unable to create temporary working directory");
+/// // open a kv store from a path
+/// let store = KvStore::open(temp_dir.path()).unwrap();
+/// // set a kv
+/// store.set("key1".to_owned(), "value1".to_owned()).unwrap();
+/// // get a kv
+/// assert_eq!(store.get("key1".to_owned()).unwrap(), Some("value1".to_owned()));
+/// // rm a kv
+/// assert!(store.remove("key1".to_owned()).is_ok());
+/// // check it!
+/// assert_eq!(store.get("key1".to_owned()).unwrap(), None);
+/// ```
 #[derive(Clone)]
 pub struct KvStore {
     current_dir: PathBuf,
@@ -32,9 +52,6 @@ pub struct KvStore {
     writer_index: Arc<RwLock<u64>>,
     uncompacted: Arc<AtomicCell<u64>>, // repeated keys count, for compaction
 }
-
-const ONE_SST_FILE_MAX_SIZE: u64 = 1024;
-const UNCOMPACTED_KEY_COUNTS: u64 = 100;
 
 impl KvsEngine for KvStore {
     /// set kv pair
@@ -65,17 +82,9 @@ impl KvsEngine for KvStore {
 
         if len > ONE_SST_FILE_MAX_SIZE {
             *writer_index += 1;
-            let filename = format!("sst_{}", writer_index);
+            let filename = format!("log_{}", writer_index);
             let write_file_path = self.current_dir.clone().join(filename);
-            *write_handler = fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .append(true)
-                .open(write_file_path)
-                .unwrap_or_else(|err| {
-                    panic!("can not open the path : {}", err);
-                });
+            *write_handler = get_write_file_handler(write_file_path);
         }
 
         Ok(())
@@ -106,7 +115,9 @@ impl KvsEngine for KvStore {
             // if hold the reference of the map, then insert will deadlock
             let idx = self.index.get(&key);
             match idx {
-                Some(_) => {}
+                Some(_) => {
+                    self.uncompacted.fetch_add(1);
+                }
                 None => return Err(KvsError::ErrKeyNotFound),
             }
         }
@@ -127,7 +138,6 @@ impl KvsEngine for KvStore {
 impl KvStore {
     fn compaction(&self) {
         let current_dir = self.current_dir.clone();
-        // let mut index = self.index.write().unwrap();
         let mut write_handler = self.write_handler.write().unwrap();
         let mut writer_index = self.writer_index.write().unwrap();
 
@@ -136,18 +146,12 @@ impl KvStore {
             return;
         }
 
-        let old_files = get_sst_from_dir_with_prefix(current_dir.clone(), "sst_".to_owned());
+        let old_files = get_sst_from_dir_with_prefix(current_dir.clone(), "log_".to_owned());
 
-        // let mut file_idx = *writer_index + 1;
         *writer_index += 1;
-        let mut filename = format!("sst_{}", writer_index);
+        let mut filename = format!("log_{}", writer_index);
         let mut file = current_dir.clone().join(filename);
-        *write_handler = fs::OpenOptions::new()
-            .write(true)
-            .read(true)
-            .create(true)
-            .open(file)
-            .unwrap();
+        *write_handler = get_write_file_handler(file);
 
         // 保存旧的 index，并且遍历来生成新的 sst
         let old_index = (*self.index).clone();
@@ -176,14 +180,9 @@ impl KvStore {
                 write_kv(&mut write_handler, kv);
                 if len > ONE_SST_FILE_MAX_SIZE {
                     *writer_index += 1;
-                    filename = format!("sst_{}", writer_index);
+                    filename = format!("log_{}", writer_index);
                     file = current_dir.clone().join(filename);
-                    *write_handler = fs::OpenOptions::new()
-                        .write(true)
-                        .append(true)
-                        .create(true)
-                        .open(file)
-                        .unwrap();
+                    *write_handler = get_write_file_handler(file);
                 }
             } else {
                 self.index.remove(key);
@@ -207,14 +206,9 @@ impl KvStore {
         file_idx: u64,
         offset: u64,
     ) -> Result<Option<String>> {
-        let filename = format!("sst_{}", file_idx);
+        let filename = format!("log_{}", file_idx);
         let filename = current_dir.clone().join(filename);
-        let mut reader = fs::OpenOptions::new()
-            .read(true)
-            .open(filename)
-            .unwrap_or_else(|err| {
-                panic!("can not open the path : {}", err);
-            });
+        let mut reader = fs::OpenOptions::new().read(true).open(filename).unwrap();
         reader.seek(SeekFrom::Start(offset)).unwrap();
         let mut meta_buffer: [u8; 4] = [0; 4]; // 8 byte
         reader.read(&mut meta_buffer).unwrap();
@@ -235,9 +229,9 @@ impl KvStore {
 
         own_dir_or_not(path.clone(), "kvs");
 
-        let mut sst_files = get_sst_from_dir_with_prefix(path.clone(), "sst".to_owned());
+        let mut sst_files = get_sst_from_dir_with_prefix(path.clone(), "log".to_owned());
         if sst_files.is_empty() {
-            sst_files.push("sst_1".to_owned());
+            sst_files.push("log_1".to_owned());
         }
 
         let write_file = sst_files.last().cloned().unwrap();
@@ -246,15 +240,7 @@ impl KvStore {
         let pos = write_file.find("_").unwrap();
         let file_idx = write_file[(pos + 1)..].parse::<u64>().unwrap();
 
-        let write_handler = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .append(true)
-            .open(write_file_path)
-            .unwrap_or_else(|err| {
-                panic!("can not open the path : {}", err);
-            });
+        let write_handler = get_write_file_handler(write_file_path);
         let store = KvStore {
             index: Arc::new(DashMap::new()),
             write_handler: Arc::new(RwLock::new(write_handler)),
@@ -276,7 +262,7 @@ impl KvStore {
         let current_dir = self.current_dir.clone();
 
         // let mut index: HashMap<String, FileOffset> = HashMap::new();
-        let sst_files = get_sst_from_dir_with_prefix(current_dir.clone(), "sst".to_owned());
+        let sst_files = get_sst_from_dir_with_prefix(current_dir.clone(), "log".to_owned());
         for file in sst_files {
             let pos = file.find("_").unwrap();
             let file_idx = file[(pos + 1)..].parse::<u64>().unwrap();
@@ -308,4 +294,16 @@ impl KvStore {
             }
         }
     }
+}
+
+fn get_write_file_handler(path: PathBuf) -> File {
+    fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .append(true)
+        .open(path)
+        .unwrap_or_else(|err| {
+            panic!("can not open the path : {}", err);
+        })
 }
