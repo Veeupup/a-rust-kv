@@ -7,7 +7,7 @@ use log::{error, info};
 
 use crate::io::read_n;
 use crate::{thread_pool::ThreadPool, KvsEngine};
-use crate::{KvsError, OpType, Request, Response};
+use crate::{KvsError, Request, Response};
 
 /// kvserver
 /// it can specify store engine and thread pool
@@ -62,7 +62,7 @@ fn handle_connection<E: KvsEngine>(store: E, mut stream: TcpStream) {
     let data = read_n(&mut stream, request_len as u64);
     let request: Request = serde_json::from_slice(&data).unwrap();
 
-    info!("Request : {:?}" ,request);
+    info!("Request : {:?}", request);
 
     let mut write_reponse = |response: &mut Response| {
         let response = serde_json::to_string(&response).unwrap();
@@ -70,9 +70,9 @@ fn handle_connection<E: KvsEngine>(store: E, mut stream: TcpStream) {
         stream.write(&response_len.to_be_bytes()).unwrap();
         stream.write(response.as_bytes()).unwrap();
     };
-    match request.op {
-        OpType::GET => {
-            let result = store.get(request.key).unwrap();
+    match request {
+        Request::GET { key } => {
+            let result = store.get(key).unwrap();
             if let Some(value) = result {
                 let mut response = Response {
                     status: KvsError::ErrOk,
@@ -87,16 +87,16 @@ fn handle_connection<E: KvsEngine>(store: E, mut stream: TcpStream) {
                 write_reponse(&mut response);
             }
         }
-        OpType::SET => {
-            store.set(request.key, request.value).unwrap();
+        Request::SET { key, value } => {
+            store.set(key, value).unwrap();
             let mut response = Response {
                 status: KvsError::ErrOk,
                 value: "".to_owned(),
             };
             write_reponse(&mut response);
         }
-        OpType::RM => {
-            let result = store.remove(request.key);
+        Request::RM { key } => {
+            let result = store.remove(key);
             match result {
                 Ok(()) => {
                     let mut response = Response {

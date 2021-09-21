@@ -4,7 +4,7 @@
 pub use client::KvsClient;
 pub use engine::{KvStore, KvsEngine, SledStore, KV};
 pub use error::{KvsError, Result};
-pub use proto::{OpType, Request, Response};
+pub use proto::{Request, Response};
 pub use server::KvServer;
 
 mod client;

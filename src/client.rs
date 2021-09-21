@@ -3,7 +3,7 @@ use std::net::TcpStream;
 use log::error;
 
 use crate::io::read_n;
-use crate::{OpType, Request, Response};
+use crate::{Request, Response};
 use std::io::{Read, Write};
 use std::process::exit;
 
@@ -19,8 +19,7 @@ impl KvsClient {
             exit(1);
         });
 
-        let request = Request {
-            op: OpType::SET,
+        let request = Request::SET {
             key: key,
             value: value,
         };
@@ -36,11 +35,7 @@ impl KvsClient {
             exit(1);
         });
 
-        let request = Request {
-            op: OpType::GET,
-            key: key,
-            value: "".to_owned(),
-        };
+        let request = Request::GET { key: key };
 
         let response = hand_rpc(request, &mut stream);
         return response;
@@ -53,11 +48,7 @@ impl KvsClient {
             exit(1);
         });
 
-        let request = Request {
-            op: OpType::RM,
-            key: key,
-            value: "".to_owned(),
-        };
+        let request = Request::RM { key: key };
 
         let response = hand_rpc(request, &mut stream);
         return response;
