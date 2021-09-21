@@ -3,6 +3,19 @@ use crate::Result;
 use std::thread;
 
 /// naive thread pool
+///
+/// ```
+/// use kvs::thread_pool::{NaiveThreadPool, ThreadPool};
+///
+/// let pool = NaiveThreadPool::new(5).unwrap();
+///
+/// pool.spawn(|| {
+///     let a = 1 + 2;
+///     println!("{}", a);
+/// });
+///
+/// ```
+///
 pub struct NaiveThreadPool {}
 
 impl ThreadPool for NaiveThreadPool {

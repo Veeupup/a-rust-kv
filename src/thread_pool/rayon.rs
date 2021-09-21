@@ -3,6 +3,17 @@ use crate::Result;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
 /// Rayon Thread Pool
+/// ```
+/// use kvs::thread_pool::{RayonThreadPool, ThreadPool};
+///
+/// let pool = RayonThreadPool::new(5).unwrap();
+///
+/// pool.spawn(|| {
+///     let a = 1 + 2;
+///     println!("{}", a);
+/// });
+///
+/// ```
 pub struct RayonThreadPool {
     pool: ThreadPool,
 }

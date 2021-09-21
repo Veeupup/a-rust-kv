@@ -12,6 +12,29 @@ use crate::{KvsError, Request, Response};
 /// kvserver
 /// it can specify store engine and thread pool
 /// it will serving network requests
+/// ```
+/// use std::net::TcpStream;
+/// use std::sync::mpsc::{self, Receiver, Sender};
+/// use kvs::{KvServer, KvStore, KvsClient, KvsError, thread_pool::*, SledStore};
+/// use tempfile::TempDir;
+///
+/// const SERVER_SOCKET_ADDR: &str = "127.0.0.1:4000";
+///
+/// let temp_dir =
+/// TempDir::new().expect("unable to create temporary working directory");
+/// let store = KvStore::open(temp_dir.path()).unwrap();
+/// let pool = SharedQueueThreadPool::new(5).unwrap();
+/// // server stop signal
+/// let (server_stop_tx, server_stop_rx): (Sender<i32>, Receiver<i32>) =
+///     mpsc::channel();
+/// let server = KvServer::new(store, pool, SERVER_SOCKET_ADDR, server_stop_rx);
+/// let handle = std::thread::spawn(move || {
+///     server.start();
+/// });
+/// server_stop_tx.send(0).unwrap();
+/// TcpStream::connect(SERVER_SOCKET_ADDR).unwrap();
+/// handle.join().unwrap();
+/// ```
 pub struct KvServer<E, P> {
     engine: E,
     pool: P,

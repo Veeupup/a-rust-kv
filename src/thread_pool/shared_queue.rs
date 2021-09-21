@@ -6,6 +6,17 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
 /// naive thread pool
+/// ```
+/// use kvs::thread_pool::{SharedQueueThreadPool, ThreadPool};
+///
+/// let pool = SharedQueueThreadPool::new(5).unwrap();
+///
+/// pool.spawn(|| {
+///     let a = 1 + 2;
+///     println!("{}", a);
+/// });
+///
+/// ```
 pub struct SharedQueueThreadPool {
     threads: u32,
     sender: mpsc::Sender<Message>,

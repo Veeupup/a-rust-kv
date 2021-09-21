@@ -8,7 +8,24 @@ use crate::KvsEngine;
 use crate::KvsError;
 use crate::Result;
 
-/// Seld store
+/// Sled store
+/// A kv store based on seld
+/// ```
+/// use kvs::{SledStore, KvsEngine, Result};
+/// use tempfile::TempDir;
+///
+/// let temp_dir = TempDir::new().expect("unable to create temporary working directory");
+/// // open a kv store from a path
+/// let store = SledStore::open(temp_dir.path()).unwrap();
+/// // set a kv
+/// store.set("key1".to_owned(), "value1".to_owned()).unwrap();
+/// // get a kv
+/// assert_eq!(store.get("key1".to_owned()).unwrap(), Some("value1".to_owned()));
+/// // rm a kv
+/// assert!(store.remove("key1".to_owned()).is_ok());
+/// // check it!
+/// assert_eq!(store.get("key1".to_owned()).unwrap(), None);
+/// ```
 pub struct SledStore {
     db: Arc<Mutex<sled::Db>>,
 }

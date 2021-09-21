@@ -23,17 +23,6 @@ pub enum Request {
     },
 }
 
-// /// Request
-// #[derive(Serialize, Deserialize, Debug)]
-// pub struct Request {
-//     /// optype
-//     pub op: OpType,
-//     /// key
-//     pub key: String,
-//     /// value
-//     pub value: String,
-// }
-
 /// Response
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Response {
